@@ -8,6 +8,11 @@
     allow(dead_code, unused_imports, unused_variables, unused_mut)
 )]
 
+
+// TODO: remove allows
+#[allow(dead_code, unused_imports, unused_variables, unused_mut)]
+mod mouse;
+
 use core::fmt;
 use std::cell::Cell;
 use std::io;
@@ -195,7 +200,7 @@ unsafe extern "system" fn hook_proc(code: c_int, wparam: WPARAM, lparam: LPARAM)
     // then it must be forwarded.
     // Source: https://learn.microsoft.com/windows/win32/winmsg/lowlevelkeyboardproc
     //
-    // Regarding in_injected check:
+    // Regarding is_injected check:
     // `SendInput()` internally calls the hook function.
     // Filter out injected events to prevent infinite recursion.
     if code != HC_ACTION || is_injected {
