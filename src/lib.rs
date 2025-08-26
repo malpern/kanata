@@ -8,11 +8,13 @@ pub mod gui;
 pub mod kanata;
 pub mod oskbd;
 pub mod tcp_server;
+pub mod udp_server;
 #[cfg(test)]
 pub mod tests;
 
 pub use kanata::*;
 pub use tcp_server::TcpServer;
+pub use udp_server::UdpServer;
 
 type CfgPath = PathBuf;
 
@@ -20,6 +22,14 @@ pub struct ValidatedArgs {
     pub paths: Vec<CfgPath>,
     #[cfg(feature = "tcp_server")]
     pub tcp_server_address: Option<SocketAddrWrapper>,
+    #[cfg(feature = "udp_server")]
+    pub udp_server_address: Option<SocketAddrWrapper>,
+    #[cfg(feature = "udp_server")]
+    pub udp_auth_token: Option<String>,
+    #[cfg(feature = "udp_server")]
+    pub udp_no_auth: bool,
+    #[cfg(feature = "udp_server")]
+    pub udp_session_timeout: u64,
     #[cfg(target_os = "linux")]
     pub symlink_path: Option<String>,
     pub nodelay: bool,

@@ -137,6 +137,10 @@ fn cli_init_fsim() -> Result<(ValidatedArgs, Vec<PathBuf>, Option<String>)> {
             paths: cfg_paths,
             #[cfg(feature = "tcp_server")]
             tcp_server_address: None::<SocketAddrWrapper>,
+            udp_server_address: None,
+            udp_auth_token: None,
+            udp_no_auth: false,
+            udp_session_timeout: 1800,
             #[cfg(target_os = "linux")]
             symlink_path: None,
             nodelay: true,

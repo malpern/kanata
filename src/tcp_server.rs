@@ -134,10 +134,15 @@ impl TcpServer {
                                     Ok(event) => {
                                         log::debug!("tcp server received command: {:?}", event);
                                         match event {
-                                            ClientMessage::ChangeLayer { new } => {
+                                            // TCP server ignores authentication messages since TCP doesn't use auth
+                                            ClientMessage::Authenticate { .. } => {
+                                                log::debug!("TCP server ignoring authentication message (not needed for TCP)");
+                                                continue;
+                                            }
+                                            ClientMessage::ChangeLayer { new, .. } => {
                                                 kanata.lock().change_layer(new);
                                             }
-                                            ClientMessage::RequestLayerNames {} => {
+                                            ClientMessage::RequestLayerNames { .. } => {
                                                 let msg = ServerMessage::LayerNames {
                                                     names: kanata
                                                         .lock()
@@ -153,7 +158,7 @@ impl TcpServer {
                                                     ),
                                                 }
                                             }
-                                            ClientMessage::ActOnFakeKey { name, action } => {
+                                            ClientMessage::ActOnFakeKey { name, action, .. } => {
                                                 let mut k = kanata.lock();
                                                 let index = match k.virtual_keys.get(&name) {
                                                     Some(index) => Some(*index as u16),
@@ -186,7 +191,7 @@ impl TcpServer {
                                                 }
                                                 drop(k);
                                             }
-                                            ClientMessage::SetMouse { x, y } => {
+                                            ClientMessage::SetMouse { x, y, .. } => {
                                                 log::info!(
                                                     "tcp server SetMouse action: x {x} y {y}"
                                                 );
@@ -209,7 +214,7 @@ impl TcpServer {
                                                     }
                                                 }
                                             }
-                                            ClientMessage::RequestCurrentLayerInfo {} => {
+                                            ClientMessage::RequestCurrentLayerInfo { .. } => {
                                                 let mut k = kanata.lock();
                                                 let cur_layer = k.layout.bm().current_layer();
                                                 let msg = ServerMessage::CurrentLayerInfo {
@@ -226,7 +231,7 @@ impl TcpServer {
                                                     ),
                                                 }
                                             }
-                                            ClientMessage::RequestCurrentLayerName {} => {
+                                            ClientMessage::RequestCurrentLayerName { .. } => {
                                                 let mut k = kanata.lock();
                                                 let cur_layer = k.layout.bm().current_layer();
                                                 let msg = ServerMessage::CurrentLayerName {
@@ -241,28 +246,28 @@ impl TcpServer {
                                                 }
                                             }
                                             // Handle reload commands with unified response protocol
-                                            reload_cmd @ (ClientMessage::Reload {}
-                                            | ClientMessage::ReloadNext {}
-                                            | ClientMessage::ReloadPrev {}
+                                            reload_cmd @ (ClientMessage::Reload { .. }
+                                            | ClientMessage::ReloadNext { .. }
+                                            | ClientMessage::ReloadPrev { .. }
                                             | ClientMessage::ReloadNum { .. }
                                             | ClientMessage::ReloadFile { .. }) => {
                                                 // Log specific action type
                                                 match &reload_cmd {
-                                                    ClientMessage::Reload {} => {
+                                                    ClientMessage::Reload { .. } => {
                                                         log::info!("tcp server Reload action")
                                                     }
-                                                    ClientMessage::ReloadNext {} => {
+                                                    ClientMessage::ReloadNext { .. } => {
                                                         log::info!("tcp server ReloadNext action")
                                                     }
-                                                    ClientMessage::ReloadPrev {} => {
+                                                    ClientMessage::ReloadPrev { .. } => {
                                                         log::info!("tcp server ReloadPrev action")
                                                     }
-                                                    ClientMessage::ReloadNum { index } => {
+                                                    ClientMessage::ReloadNum { index, .. } => {
                                                         log::info!(
                                                             "tcp server ReloadNum action: index {index}"
                                                         )
                                                     }
-                                                    ClientMessage::ReloadFile { path } => {
+                                                    ClientMessage::ReloadFile { path, .. } => {
                                                         log::info!(
                                                             "tcp server ReloadFile action: path {path}"
                                                         )

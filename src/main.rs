@@ -141,6 +141,14 @@ mod cli {
                 paths: cfg_paths,
                 #[cfg(feature = "tcp_server")]
                 tcp_server_address: args.tcp_server_address,
+                #[cfg(feature = "udp_server")]
+                udp_server_address: args.udp_server_address,
+                #[cfg(feature = "udp_server")]
+                udp_auth_token: args.udp_auth_token,
+                #[cfg(feature = "udp_server")]
+                udp_no_auth: args.udp_no_auth,
+                #[cfg(feature = "udp_server")]
+                udp_session_timeout: args.udp_session_timeout,
                 #[cfg(target_os = "linux")]
                 symlink_path: args.symlink_path,
                 nodelay: args.nodelay,
@@ -175,7 +183,7 @@ mod cli {
 
         let (tx, rx) = std::sync::mpsc::sync_channel(100);
 
-        let (server, ntx, nrx) = if let Some(address) = {
+        let (tcp_server, ntx, nrx) = if let Some(address) = {
             #[cfg(feature = "tcp_server")]
             {
                 args.tcp_server_address
@@ -193,9 +201,68 @@ mod cli {
             (None, None, None)
         };
 
+        // Initialize UDP server
+        let _udp_server = if let Some(address) = {
+            #[cfg(feature = "udp_server")]
+            {
+                args.udp_server_address
+            }
+            #[cfg(not(feature = "udp_server"))]
+            {
+                None::<SocketAddrWrapper>
+            }
+        } {
+            use std::time::Duration;
+            let mut server = UdpServer::new(
+                address.into_inner(),
+                tx.clone(),
+                {
+                    #[cfg(feature = "udp_server")]
+                    {
+                        args.udp_auth_token
+                    }
+                    #[cfg(not(feature = "udp_server"))]
+                    {
+                        None
+                    }
+                },
+                Duration::from_secs({
+                    #[cfg(feature = "udp_server")]
+                    {
+                        args.udp_session_timeout
+                    }
+                    #[cfg(not(feature = "udp_server"))]
+                    {
+                        1800
+                    }
+                }),
+                {
+                    #[cfg(feature = "udp_server")]
+                    {
+                        !args.udp_no_auth
+                    }
+                    #[cfg(not(feature = "udp_server"))]
+                    {
+                        true
+                    }
+                }
+            );
+            
+            #[cfg(feature = "udp_server")]
+            if let Err(e) = server.start(kanata_arc.clone()) {
+                log::error!("Failed to start UDP server: {}", e);
+            } else {
+                log::info!("UDP server auth token: {}", server.get_auth_token());
+            }
+            
+            Some(server)
+        } else {
+            None
+        };
+
         Kanata::start_processing_loop(kanata_arc.clone(), rx, ntx, args.nodelay);
 
-        if let (Some(server), Some(nrx)) = (server, nrx) {
+        if let (Some(server), Some(nrx)) = (tcp_server, nrx) {
             #[allow(clippy::unit_arg)]
             Kanata::start_notification_loop(nrx, server.connections);
         }

@@ -10,6 +10,14 @@ pub enum ServerMessage {
     CurrentLayerName { name: String },
     MessagePush { message: serde_json::Value },
     Error { msg: String },
+    // UDP Authentication messages
+    AuthResult { 
+        success: bool,
+        session_id: Option<String>,
+        expires_in_seconds: Option<u64>,
+    },
+    AuthRequired,
+    SessionExpired,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -37,28 +45,62 @@ impl ServerMessage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientMessage {
+    // UDP Authentication message
+    Authenticate { 
+        token: String,
+        client_name: Option<String>,
+    },
+    // Existing messages with optional session_id for UDP auth
     ChangeLayer {
         new: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
     },
-    RequestLayerNames {},
-    RequestCurrentLayerInfo {},
-    RequestCurrentLayerName {},
+    RequestLayerNames {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+    },
+    RequestCurrentLayerInfo {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+    },
+    RequestCurrentLayerName {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+    },
     ActOnFakeKey {
         name: String,
         action: FakeKeyActionMessage,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
     },
     SetMouse {
         x: u16,
         y: u16,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
     },
-    Reload {},
-    ReloadNext {},
-    ReloadPrev {},
+    Reload {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+    },
+    ReloadNext {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+    },
+    ReloadPrev {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+    },
     ReloadNum {
         index: usize,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
     },
     ReloadFile {
         path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
     },
 }
 
