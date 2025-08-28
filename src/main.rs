@@ -144,7 +144,7 @@ mod cli {
                 #[cfg(feature = "udp_server")]
                 udp_server_address: args.udp_server_address,
                 #[cfg(feature = "udp_server")]
-                udp_auth_token: args.udp_auth_token,
+                udp_auth_token: args.udp_auth_token.or_else(|| std::env::var("KANATA_UDP_TOKEN").ok()),
                 #[cfg(feature = "udp_server")]
                 udp_no_auth: args.udp_no_auth,
                 #[cfg(feature = "udp_server")]
@@ -219,7 +219,7 @@ mod cli {
                 {
                     #[cfg(feature = "udp_server")]
                     {
-                        args.udp_auth_token
+                        args.udp_auth_token.or_else(|| std::env::var("KANATA_UDP_TOKEN").ok())
                     }
                     #[cfg(not(feature = "udp_server"))]
                     {
