@@ -120,14 +120,29 @@ impl TcpServer {
                             }
                         };
 
-                        connections.lock().insert(
-                            addr.clone(),
-                            stream.try_clone().expect("stream is clonable"),
-                        );
-                        let reader = serde_json::Deserializer::from_reader(
-                            stream.try_clone().expect("stream is clonable"),
-                        )
-                        .into_iter::<ClientMessage>();
+                        // Clone stream for connections map - handle errors gracefully
+                        let stream_clone_for_map = match stream.try_clone() {
+                            Ok(s) => s,
+                            Err(e) => {
+                                log::error!("failed to clone stream for connections map: {e:?}");
+                                log::error!("dropping connection {addr} due to clone failure");
+                                continue;
+                            }
+                        };
+
+                        // Clone stream for reader - handle errors gracefully
+                        let stream_clone_for_reader = match stream.try_clone() {
+                            Ok(s) => s,
+                            Err(e) => {
+                                log::error!("failed to clone stream for reader: {e:?}");
+                                log::error!("dropping connection {addr} due to clone failure");
+                                continue;
+                            }
+                        };
+
+                        connections.lock().insert(addr.clone(), stream_clone_for_map);
+                        let reader = serde_json::Deserializer::from_reader(stream_clone_for_reader)
+                            .into_iter::<ClientMessage>();
 
                         log::info!("listening for incoming messages {addr}");
 
