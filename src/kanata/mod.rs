@@ -669,14 +669,24 @@ impl Kanata {
     }
 
     fn do_live_reload(&mut self, _tx: &Option<Sender<ServerMessage>>) -> Result<()> {
+        let reload_start = web_time::Instant::now();
+        log::debug!("do_live_reload: Starting reload of {}", self.cfg_paths[self.cur_cfg_idx].display());
+        
+        let parse_start = web_time::Instant::now();
         let cfg = match cfg::new_from_file(&self.cfg_paths[self.cur_cfg_idx]) {
-            Ok(c) => c,
+            Ok(c) => {
+                log::debug!("do_live_reload: Config parsed in {}ms", parse_start.elapsed().as_millis());
+                c
+            }
             Err(e) => {
-                log::error!("{e:?}");
+                log::error!("do_live_reload: Config parse failed after {}ms: {e:?}", parse_start.elapsed().as_millis());
                 bail!("failed to parse config file");
             }
         };
+        
+        let update_start = web_time::Instant::now();
         update_kbd_out(&cfg.options, &self.kbd_out)?;
+        log::debug!("do_live_reload: update_kbd_out completed in {}ms", update_start.elapsed().as_millis());
         #[cfg(target_os = "windows")]
         set_win_altgr_behaviour(cfg.options.windows_opts.windows_altgr);
         self.sequence_backtrack_modcancel = cfg.options.sequence_backtrack_modcancel;
@@ -789,8 +799,12 @@ impl Kanata {
 
         #[cfg(feature = "tcp_server")]
         {
-            self.last_reload_time = Some(web_time::Instant::now());
+            let reload_complete_time = web_time::Instant::now();
+            self.last_reload_time = Some(reload_complete_time);
             self.last_reload_ok = true;
+            log::info!("do_live_reload: Reload completed successfully in {}ms, last_reload_time set, is_ready() should now return true", reload_start.elapsed().as_millis());
+        } else {
+            log::info!("do_live_reload: Reload completed successfully in {}ms", reload_start.elapsed().as_millis());
         }
 
         Ok(())
