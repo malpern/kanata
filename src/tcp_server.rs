@@ -183,7 +183,7 @@ impl TcpServer {
                                                 }
                                             }
                                             ClientMessage::ActOnFakeKey {
-                                                name, action, ..
+                                                name, action, request_id, ..
                                             } => {
                                                 let mut k = kanata.lock();
                                                 let index = match k.virtual_keys.get(&name) {
@@ -194,6 +194,7 @@ impl TcpServer {
                                                                 msg: format!(
                                                                 "unknown virtual/fake key: {name}"
                                                             ),
+                                                                request_id,
                                                             }
                                                             .as_bytes(),
                                                         ) {
@@ -271,7 +272,7 @@ impl TcpServer {
                                                     ),
                                                 }
                                             }
-                                            ClientMessage::Hello { .. } => {
+                                            ClientMessage::Hello { request_id, .. } => {
                                                 let version = env!("CARGO_PKG_VERSION").to_string();
                                                 let capabilities = vec![
                                                     "reload".to_string(),
@@ -282,6 +283,7 @@ impl TcpServer {
                                                     version,
                                                     protocol: 1,
                                                     capabilities,
+                                                    request_id,
                                                 };
                                                 // Send status response first
                                                 if !send_response(
@@ -306,7 +308,7 @@ impl TcpServer {
                                                     }
                                                 }
                                             }
-                                            ClientMessage::Status { .. } => {
+                                            ClientMessage::Status { request_id, .. } => {
                                                 let k = kanata.lock();
                                                 let engine_version =
                                                     env!("CARGO_PKG_VERSION").to_string();
@@ -316,6 +318,7 @@ impl TcpServer {
                                                 drop(k);
 
                                                 let msg = ServerMessage::StatusInfo {
+                                                    request_id,
                                                     engine_version,
                                                     uptime_s,
                                                     ready,
@@ -346,7 +349,7 @@ impl TcpServer {
                                             }
 
                                             // Validate config (preflight)
-                                            ClientMessage::Validate { config, .. } => {
+                                            ClientMessage::Validate { config, request_id, .. } => {
                                                 // Default: strict mode behavior; for now unused
                                                 // Try parsing using kanata_parser
                                                 let (warnings, errors) =
@@ -378,6 +381,7 @@ impl TcpServer {
                                                     break;
                                                 }
                                                 let msg = ServerMessage::ValidationResult {
+                                                    request_id,
                                                     warnings,
                                                     errors,
                                                 };
@@ -385,7 +389,7 @@ impl TcpServer {
                                             }
 
                                             // Subscribe to events (stubbed)
-                                            ClientMessage::Subscribe { events, .. } => {
+                                            ClientMessage::Subscribe { events, request_id, .. } => {
                                                 subscriptions.lock().insert(addr.clone(), events);
                                                 let _ = send_response(
                                                     &mut stream,
@@ -409,6 +413,16 @@ impl TcpServer {
                                             | ClientMessage::ReloadFile {
                                                 ..
                                             }) => {
+                                                // Extract request_id from the command
+                                                let request_id = match reload_cmd {
+                                                    ClientMessage::Reload { request_id, .. } => *request_id,
+                                                    ClientMessage::ReloadNext { request_id, .. } => *request_id,
+                                                    ClientMessage::ReloadPrev { request_id, .. } => *request_id,
+                                                    ClientMessage::ReloadNum { request_id, .. } => *request_id,
+                                                    ClientMessage::ReloadFile { request_id, .. } => *request_id,
+                                                    _ => None,
+                                                };
+
                                                 // Extract wait and timeout_ms from the command
                                                 let (wait_flag, timeout) = match reload_cmd {
                                                     ClientMessage::Reload {
@@ -442,21 +456,21 @@ impl TcpServer {
                                                 // Log specific action type
                                                 let reload_start_time = std::time::Instant::now();
                                                 match &reload_cmd {
-                                                    ClientMessage::Reload { .. } => {
+                                                    ClientMessage::Reload { request_id, .. } => {
                                                         log::info!("tcp server Reload action (wait={:?}, timeout_ms={:?})", wait_flag, timeout)
                                                     }
-                                                    ClientMessage::ReloadNext { .. } => {
+                                                    ClientMessage::ReloadNext { request_id, .. } => {
                                                         log::info!("tcp server ReloadNext action (wait={:?}, timeout_ms={:?})", wait_flag, timeout)
                                                     }
-                                                    ClientMessage::ReloadPrev { .. } => {
+                                                    ClientMessage::ReloadPrev { request_id, .. } => {
                                                         log::info!("tcp server ReloadPrev action (wait={:?}, timeout_ms={:?})", wait_flag, timeout)
                                                     }
-                                                    ClientMessage::ReloadNum { index, .. } => {
+                                                    ClientMessage::ReloadNum { index, request_id, .. } => {
                                                         log::info!(
                                                             "tcp server ReloadNum action: index {index} (wait={:?}, timeout_ms={:?})", wait_flag, timeout
                                                         )
                                                     }
-                                                    ClientMessage::ReloadFile { path, .. } => {
+                                                    ClientMessage::ReloadFile { path, request_id, .. } => {
                                                         log::info!(
                                                             "tcp server ReloadFile action: path {path} (wait={:?}, timeout_ms={:?})", wait_flag, timeout
                                                         )
@@ -501,6 +515,7 @@ impl TcpServer {
                                                             .to_string(),
                                                         line: None,
                                                         column: None,
+                                                        request_id,
                                                     };
                                                     let _ = stream.write_all(&detail.as_bytes());
                                                 }
@@ -551,11 +566,13 @@ impl TcpServer {
 
                                                     let result_msg = if ready {
                                                         ServerMessage::ReloadResult {
+                                                        request_id,
                                                             ready: true,
                                                             timeout_ms: None,
                                                         }
                                                     } else {
                                                         ServerMessage::ReloadResult {
+                                                        request_id,
                                                             ready: false,
                                                             timeout_ms: Some(timeout_val),
                                                         }

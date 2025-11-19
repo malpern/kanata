@@ -24,12 +24,16 @@ pub enum ServerMessage {
     },
     Error {
         msg: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     // UDP Authentication messages
     AuthResult {
         success: bool,
         session_id: Option<String>,
         expires_in_seconds: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     AuthRequired,
     SessionExpired,
@@ -38,17 +42,23 @@ pub enum ServerMessage {
         version: String,
         protocol: u8,
         capabilities: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     StatusInfo {
         engine_version: String,
         uptime_s: u64,
         ready: bool,
         last_reload: LastReloadInfo,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     ReloadResult {
         ready: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         timeout_ms: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     // New in PR2: validation and events
     ValidationResult {
@@ -56,6 +66,8 @@ pub enum ServerMessage {
         warnings: Vec<ValidationItem>,
         #[serde(default)]
         errors: Vec<ValidationItem>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     // Optional structured error detail that may follow a status Error line
     ErrorDetail {
@@ -65,6 +77,8 @@ pub enum ServerMessage {
         line: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         column: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     // Event messages for subscription
     Ready {
@@ -117,36 +131,50 @@ pub enum ClientMessage {
     Authenticate {
         token: String,
         client_name: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     // Existing messages with optional session_id for UDP auth
     ChangeLayer {
         new: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     RequestLayerNames {
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     RequestCurrentLayerInfo {
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     RequestCurrentLayerName {
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     ActOnFakeKey {
         name: String,
         action: FakeKeyActionMessage,
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     SetMouse {
         x: u16,
         y: u16,
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     Reload {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -155,6 +183,8 @@ pub enum ClientMessage {
         wait: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         timeout_ms: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     ReloadNext {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -163,6 +193,8 @@ pub enum ClientMessage {
         wait: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         timeout_ms: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     ReloadPrev {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -171,6 +203,8 @@ pub enum ClientMessage {
         wait: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         timeout_ms: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     ReloadNum {
         index: usize,
@@ -180,6 +214,8 @@ pub enum ClientMessage {
         wait: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         timeout_ms: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     ReloadFile {
         path: String,
@@ -189,14 +225,20 @@ pub enum ClientMessage {
         wait: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         timeout_ms: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     Hello {
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     Status {
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     // New in PR2
     Validate {
@@ -205,11 +247,15 @@ pub enum ClientMessage {
         mode: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
     Subscribe {
         events: Vec<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<u64>,
     },
 }
 
@@ -283,6 +329,7 @@ mod tests {
             version: "1.10.x".to_string(),
             protocol: 1,
             capabilities: vec!["reload".into(), "status".into(), "ready".into()],
+            request_id: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("HelloOk"));
@@ -300,6 +347,7 @@ mod tests {
                 ok: true,
                 at: "1730619223".into(),
             },
+            request_id: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("StatusInfo"));
@@ -313,10 +361,12 @@ mod tests {
         let ready_msg = ServerMessage::ReloadResult {
             ready: true,
             timeout_ms: None,
+            request_id: None,
         };
         let not_ready_msg = ServerMessage::ReloadResult {
             ready: false,
             timeout_ms: Some(2000),
+            request_id: None,
         };
         let ready_json = serde_json::to_string(&ready_msg).unwrap();
         let not_ready_json = serde_json::to_string(&not_ready_msg).unwrap();
@@ -336,9 +386,88 @@ mod tests {
                 code: None,
             }],
             errors: vec![],
+            request_id: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("ValidationResult"));
         assert!(json.contains("warnings"));
+    }
+
+    #[test]
+    fn test_request_id_omitted_when_none() {
+        // Test that request_id is omitted from JSON when None
+        let msg = ServerMessage::HelloOk {
+            version: "1.10.0".to_string(),
+            protocol: 1,
+            capabilities: vec!["reload".into()],
+            request_id: None,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(!json.contains("request_id"), "request_id should be omitted when None");
+    }
+
+    #[test]
+    fn test_request_id_included_when_some() {
+        // Test that request_id is included in JSON when Some
+        let msg = ServerMessage::HelloOk {
+            version: "1.10.0".to_string(),
+            protocol: 1,
+            capabilities: vec!["reload".into()],
+            request_id: Some(42),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"request_id\":42"), "request_id should be included when Some");
+    }
+
+    #[test]
+    fn test_client_message_with_request_id() {
+        // Test that ClientMessage can be deserialized with request_id
+        let json = r#"{"Hello":{"request_id":99}}"#;
+        let msg: ClientMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            ClientMessage::Hello { request_id, .. } => {
+                assert_eq!(request_id, Some(99));
+            }
+            _ => panic!("Expected Hello message"),
+        }
+    }
+
+    #[test]
+    fn test_client_message_without_request_id() {
+        // Test backward compatibility: old messages without request_id still parse
+        let json = r#"{"Hello":{}}"#;
+        let msg: ClientMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            ClientMessage::Hello { request_id, .. } => {
+                assert_eq!(request_id, None);
+            }
+            _ => panic!("Expected Hello message"),
+        }
+    }
+
+    #[test]
+    fn test_server_message_deserialization_with_request_id() {
+        // Test that ServerMessage can be deserialized with request_id
+        let json = r#"{"HelloOk":{"version":"1.10.0","protocol":1,"capabilities":["reload"],"request_id":77}}"#;
+        let msg: ServerMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            ServerMessage::HelloOk { request_id, .. } => {
+                assert_eq!(request_id, Some(77));
+            }
+            _ => panic!("Expected HelloOk message"),
+        }
+    }
+
+    #[test]
+    fn test_server_message_deserialization_without_request_id() {
+        // Test backward compatibility: old server messages without request_id still parse
+        let json = r#"{"HelloOk":{"version":"1.10.0","protocol":1,"capabilities":["reload"]}}"#;
+        let msg: ServerMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            ServerMessage::HelloOk { request_id, .. } => {
+                assert_eq!(request_id, None);
+            }
+            _ => panic!("Expected HelloOk message"),
+        }
     }
 }
