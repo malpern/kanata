@@ -19,11 +19,20 @@ use std::net::{TcpListener, TcpStream};
 
 #[cfg(feature = "tcp_server")]
 use std::collections::HashSet;
+#[cfg(feature = "tcp_server")]
+use std::time::Instant;
+
+// Connection limits to prevent resource exhaustion and keyboard freeze
+#[cfg(feature = "tcp_server")]
+const MAX_CONCURRENT_CONNECTIONS: usize = 10;
+#[cfg(feature = "tcp_server")]
+const STALE_CONNECTION_TIMEOUT_SECS: u64 = 300; // 5 minutes
 
 #[cfg(feature = "tcp_server")]
 pub struct ClientState {
     pub stream: TcpStream,
     pub subscriptions: Option<HashSet<String>>,
+    pub last_activity: Instant,
 }
 
 #[cfg(feature = "tcp_server")]
@@ -32,6 +41,7 @@ impl ClientState {
         Self {
             stream,
             subscriptions: None, // None = receive all events
+            last_activity: Instant::now(),
         }
     }
 
@@ -42,6 +52,16 @@ impl ClientState {
             None => true, // No subscription = all events
             Some(subs) => subs.contains(event_type) || subs.contains("*"),
         }
+    }
+
+    /// Update last activity timestamp
+    pub fn update_activity(&mut self) {
+        self.last_activity = Instant::now();
+    }
+
+    /// Check if connection is stale
+    pub fn is_stale(&self) -> bool {
+        self.last_activity.elapsed().as_secs() > STALE_CONNECTION_TIMEOUT_SECS
     }
 }
 
@@ -131,6 +151,16 @@ impl TcpServer {
             for stream in listener.incoming() {
                 match stream {
                     Ok(mut stream) => {
+                        if let Err(e) = stream.set_nodelay(true) {
+                            log::warn!("failed to set nodelay: {e:?}");
+                        }
+                        if let Err(e) = stream.set_read_timeout(Some(std::time::Duration::from_secs(120))) {
+                            log::warn!("failed to set read timeout: {e:?}");
+                        }
+                        if let Err(e) = stream.set_write_timeout(Some(std::time::Duration::from_secs(10))) {
+                            log::warn!("failed to set write timeout: {e:?}");
+                        }
+
                         {
                             let k = kanata.lock();
                             log::info!(
@@ -155,12 +185,41 @@ impl TcpServer {
                             }
                         };
 
+                        // Clean up stale connections before accepting new ones
+                        {
+                            let mut conns = connections.lock();
+                            let stale: Vec<String> = conns
+                                .iter()
+                                .filter(|(_, state)| state.is_stale())
+                                .map(|(addr, _)| addr.clone())
+                                .collect();
+
+                            for stale_addr in stale {
+                                log::info!("removing stale connection {stale_addr} (no activity for {STALE_CONNECTION_TIMEOUT_SECS}s)");
+                                conns.remove(&stale_addr);
+                            }
+                        }
+
+                        // Check connection limit to prevent resource exhaustion
+                        {
+                            let conns = connections.lock();
+                            if conns.len() >= MAX_CONCURRENT_CONNECTIONS {
+                                log::warn!(
+                                    "connection limit reached ({MAX_CONCURRENT_CONNECTIONS}), rejecting connection from {addr}"
+                                );
+                                log::warn!("this prevents file descriptor exhaustion and keyboard freeze");
+                                drop(stream);
+                                continue;
+                            }
+                        }
+
                         // Clone stream for connections map - handle errors gracefully
                         let stream_clone_for_map = match stream.try_clone() {
                             Ok(s) => s,
                             Err(e) => {
                                 log::error!("failed to clone stream for connections map: {e:?}");
                                 log::error!("dropping connection {addr} due to clone failure");
+                                drop(stream);
                                 continue;
                             }
                         };
@@ -171,6 +230,8 @@ impl TcpServer {
                             Err(e) => {
                                 log::error!("failed to clone stream for reader: {e:?}");
                                 log::error!("dropping connection {addr} due to clone failure");
+                                drop(stream_clone_for_map);
+                                drop(stream);
                                 continue;
                             }
                         };
@@ -190,6 +251,11 @@ impl TcpServer {
                             for v in reader {
                                 match v {
                                     Ok(event) => {
+                                        // Update activity timestamp for this connection
+                                        if let Some(state) = connections.lock().get_mut(&addr) {
+                                            state.update_activity();
+                                        }
+
                                         log::debug!("tcp server received command: {:?}", event);
                                         match event {
                                             // TCP server ignores authentication messages since TCP doesn't use auth
@@ -428,7 +494,7 @@ impl TcpServer {
                                             // Stores subscription filter for this client.
                                             // None subscription = all events (backward compatible)
                                             ClientMessage::Subscribe { events, request_id, .. } => {
-                                                log::info!("client {addr} subscribed to events: {events:?}");
+                                                log::info!("client {addr} subscribed to events: {events:?} (request_id={request_id:?})");
                                                 // Update this client's subscription filter
                                                 if let Some(client_state) = connections.lock().get_mut(&addr) {
                                                     client_state.subscriptions = Some(events.into_iter().collect());
@@ -499,22 +565,22 @@ impl TcpServer {
                                                 let reload_start_time = std::time::Instant::now();
                                                 match &reload_cmd {
                                                     ClientMessage::Reload { request_id, .. } => {
-                                                        log::info!("tcp server Reload action (wait={:?}, timeout_ms={:?})", wait_flag, timeout)
+                                                        log::info!("tcp server Reload action (request_id={:?}, wait={:?}, timeout_ms={:?})", request_id, wait_flag, timeout)
                                                     }
                                                     ClientMessage::ReloadNext { request_id, .. } => {
-                                                        log::info!("tcp server ReloadNext action (wait={:?}, timeout_ms={:?})", wait_flag, timeout)
+                                                        log::info!("tcp server ReloadNext action (request_id={:?}, wait={:?}, timeout_ms={:?})", request_id, wait_flag, timeout)
                                                     }
                                                     ClientMessage::ReloadPrev { request_id, .. } => {
-                                                        log::info!("tcp server ReloadPrev action (wait={:?}, timeout_ms={:?})", wait_flag, timeout)
+                                                        log::info!("tcp server ReloadPrev action (request_id={:?}, wait={:?}, timeout_ms={:?})", request_id, wait_flag, timeout)
                                                     }
                                                     ClientMessage::ReloadNum { index, request_id, .. } => {
                                                         log::info!(
-                                                            "tcp server ReloadNum action: index {index} (wait={:?}, timeout_ms={:?})", wait_flag, timeout
+                                                            "tcp server ReloadNum action: index {index} (request_id={:?}, wait={:?}, timeout_ms={:?})", request_id, wait_flag, timeout
                                                         )
                                                     }
                                                     ClientMessage::ReloadFile { path, request_id, .. } => {
                                                         log::info!(
-                                                            "tcp server ReloadFile action: path {path} (wait={:?}, timeout_ms={:?})", wait_flag, timeout
+                                                            "tcp server ReloadFile action: path {path} (request_id={:?}, wait={:?}, timeout_ms={:?})", request_id, wait_flag, timeout
                                                         )
                                                     }
                                                     _ => unreachable!(),
