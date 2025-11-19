@@ -154,10 +154,14 @@ impl TcpServer {
                         if let Err(e) = stream.set_nodelay(true) {
                             log::warn!("failed to set nodelay: {e:?}");
                         }
-                        if let Err(e) = stream.set_read_timeout(Some(std::time::Duration::from_secs(120))) {
+                        if let Err(e) =
+                            stream.set_read_timeout(Some(std::time::Duration::from_secs(120)))
+                        {
                             log::warn!("failed to set read timeout: {e:?}");
                         }
-                        if let Err(e) = stream.set_write_timeout(Some(std::time::Duration::from_secs(10))) {
+                        if let Err(e) =
+                            stream.set_write_timeout(Some(std::time::Duration::from_secs(10)))
+                        {
                             log::warn!("failed to set write timeout: {e:?}");
                         }
 
@@ -195,7 +199,9 @@ impl TcpServer {
                                 .collect();
 
                             for stale_addr in stale {
-                                log::info!("removing stale connection {stale_addr} (no activity for {STALE_CONNECTION_TIMEOUT_SECS}s)");
+                                log::info!(
+                                    "removing stale connection {stale_addr} (no activity for {STALE_CONNECTION_TIMEOUT_SECS}s)"
+                                );
                                 conns.remove(&stale_addr);
                             }
                         }
@@ -207,7 +213,9 @@ impl TcpServer {
                                 log::warn!(
                                     "connection limit reached ({MAX_CONCURRENT_CONNECTIONS}), rejecting connection from {addr}"
                                 );
-                                log::warn!("this prevents file descriptor exhaustion and keyboard freeze");
+                                log::warn!(
+                                    "this prevents file descriptor exhaustion and keyboard freeze"
+                                );
                                 drop(stream);
                                 continue;
                             }
@@ -285,7 +293,10 @@ impl TcpServer {
                                                 }
                                             }
                                             ClientMessage::ActOnFakeKey {
-                                                name, action, request_id, ..
+                                                name,
+                                                action,
+                                                request_id,
+                                                ..
                                             } => {
                                                 let mut k = kanata.lock();
                                                 let index = match k.virtual_keys.get(&name) {
@@ -451,7 +462,9 @@ impl TcpServer {
                                             }
 
                                             // Validate config (preflight)
-                                            ClientMessage::Validate { config, request_id, .. } => {
+                                            ClientMessage::Validate {
+                                                config, request_id, ..
+                                            } => {
                                                 // Default: strict mode behavior; for now unused
                                                 // Try parsing using kanata_parser
                                                 let (warnings, errors) =
@@ -493,11 +506,18 @@ impl TcpServer {
                                             // Subscribe to specific event types
                                             // Stores subscription filter for this client.
                                             // None subscription = all events (backward compatible)
-                                            ClientMessage::Subscribe { events, request_id, .. } => {
-                                                log::info!("client {addr} subscribed to events: {events:?} (request_id={request_id:?})");
+                                            ClientMessage::Subscribe {
+                                                events, request_id, ..
+                                            } => {
+                                                log::info!(
+                                                    "client {addr} subscribed to events: {events:?} (request_id={request_id:?})"
+                                                );
                                                 // Update this client's subscription filter
-                                                if let Some(client_state) = connections.lock().get_mut(&addr) {
-                                                    client_state.subscriptions = Some(events.into_iter().collect());
+                                                if let Some(client_state) =
+                                                    connections.lock().get_mut(&addr)
+                                                {
+                                                    client_state.subscriptions =
+                                                        Some(events.into_iter().collect());
                                                 }
                                                 let _ = send_response(
                                                     &mut stream,
@@ -523,11 +543,24 @@ impl TcpServer {
                                             }) => {
                                                 // Extract request_id from the command
                                                 let request_id = match reload_cmd {
-                                                    ClientMessage::Reload { request_id, .. } => *request_id,
-                                                    ClientMessage::ReloadNext { request_id, .. } => *request_id,
-                                                    ClientMessage::ReloadPrev { request_id, .. } => *request_id,
-                                                    ClientMessage::ReloadNum { request_id, .. } => *request_id,
-                                                    ClientMessage::ReloadFile { request_id, .. } => *request_id,
+                                                    ClientMessage::Reload {
+                                                        request_id, ..
+                                                    } => *request_id,
+                                                    ClientMessage::ReloadNext {
+                                                        request_id,
+                                                        ..
+                                                    } => *request_id,
+                                                    ClientMessage::ReloadPrev {
+                                                        request_id,
+                                                        ..
+                                                    } => *request_id,
+                                                    ClientMessage::ReloadNum {
+                                                        request_id, ..
+                                                    } => *request_id,
+                                                    ClientMessage::ReloadFile {
+                                                        request_id,
+                                                        ..
+                                                    } => *request_id,
                                                     _ => None,
                                                 };
 
@@ -564,46 +597,93 @@ impl TcpServer {
                                                 // Log specific action type
                                                 let reload_start_time = std::time::Instant::now();
                                                 match &reload_cmd {
-                                                    ClientMessage::Reload { request_id, .. } => {
-                                                        log::info!("tcp server Reload action (request_id={:?}, wait={:?}, timeout_ms={:?})", request_id, wait_flag, timeout)
-                                                    }
-                                                    ClientMessage::ReloadNext { request_id, .. } => {
-                                                        log::info!("tcp server ReloadNext action (request_id={:?}, wait={:?}, timeout_ms={:?})", request_id, wait_flag, timeout)
-                                                    }
-                                                    ClientMessage::ReloadPrev { request_id, .. } => {
-                                                        log::info!("tcp server ReloadPrev action (request_id={:?}, wait={:?}, timeout_ms={:?})", request_id, wait_flag, timeout)
-                                                    }
-                                                    ClientMessage::ReloadNum { index, request_id, .. } => {
+                                                    ClientMessage::Reload {
+                                                        request_id, ..
+                                                    } => {
                                                         log::info!(
-                                                            "tcp server ReloadNum action: index {index} (request_id={:?}, wait={:?}, timeout_ms={:?})", request_id, wait_flag, timeout
+                                                            "tcp server Reload action (request_id={:?}, wait={:?}, timeout_ms={:?})",
+                                                            request_id,
+                                                            wait_flag,
+                                                            timeout
                                                         )
                                                     }
-                                                    ClientMessage::ReloadFile { path, request_id, .. } => {
+                                                    ClientMessage::ReloadNext {
+                                                        request_id,
+                                                        ..
+                                                    } => {
                                                         log::info!(
-                                                            "tcp server ReloadFile action: path {path} (request_id={:?}, wait={:?}, timeout_ms={:?})", request_id, wait_flag, timeout
+                                                            "tcp server ReloadNext action (request_id={:?}, wait={:?}, timeout_ms={:?})",
+                                                            request_id,
+                                                            wait_flag,
+                                                            timeout
+                                                        )
+                                                    }
+                                                    ClientMessage::ReloadPrev {
+                                                        request_id,
+                                                        ..
+                                                    } => {
+                                                        log::info!(
+                                                            "tcp server ReloadPrev action (request_id={:?}, wait={:?}, timeout_ms={:?})",
+                                                            request_id,
+                                                            wait_flag,
+                                                            timeout
+                                                        )
+                                                    }
+                                                    ClientMessage::ReloadNum {
+                                                        index,
+                                                        request_id,
+                                                        ..
+                                                    } => {
+                                                        log::info!(
+                                                            "tcp server ReloadNum action: index {index} (request_id={:?}, wait={:?}, timeout_ms={:?})",
+                                                            request_id,
+                                                            wait_flag,
+                                                            timeout
+                                                        )
+                                                    }
+                                                    ClientMessage::ReloadFile {
+                                                        path,
+                                                        request_id,
+                                                        ..
+                                                    } => {
+                                                        log::info!(
+                                                            "tcp server ReloadFile action: path {path} (request_id={:?}, wait={:?}, timeout_ms={:?})",
+                                                            request_id,
+                                                            wait_flag,
+                                                            timeout
                                                         )
                                                     }
                                                     _ => unreachable!(),
                                                 }
 
-                                                log::debug!("Reload: calling handle_client_command");
+                                                log::debug!(
+                                                    "Reload: calling handle_client_command"
+                                                );
                                                 let response = match kanata
                                                     .lock()
                                                     .handle_client_command(reload_cmd.clone())
                                                 {
                                                     Ok(_) => {
-                                                        log::debug!("Reload: handle_client_command returned Ok");
+                                                        log::debug!(
+                                                            "Reload: handle_client_command returned Ok"
+                                                        );
                                                         ServerResponse::Ok
                                                     }
                                                     Err(e) => {
-                                                        log::error!("Reload: handle_client_command returned error: {e}");
+                                                        log::error!(
+                                                            "Reload: handle_client_command returned error: {e}"
+                                                        );
                                                         ServerResponse::Error {
                                                             msg: format!("{e}"),
                                                         }
                                                     }
                                                 };
                                                 let was_ok = matches!(response, ServerResponse::Ok);
-                                                log::debug!("Reload: was_ok={}, elapsed={}ms", was_ok, reload_start_time.elapsed().as_millis());
+                                                log::debug!(
+                                                    "Reload: was_ok={}, elapsed={}ms",
+                                                    was_ok,
+                                                    reload_start_time.elapsed().as_millis()
+                                                );
 
                                                 // Send initial status response
                                                 if !send_response(
@@ -635,8 +715,11 @@ impl TcpServer {
                                                     let mut ready = false;
                                                     let mut poll_count = 0u32;
 
-                                                    log::debug!("Reload: Starting wait loop (timeout={}ms)", timeout_val);
-                                                    
+                                                    log::debug!(
+                                                        "Reload: Starting wait loop (timeout={}ms)",
+                                                        timeout_val
+                                                    );
+
                                                     // Poll for readiness with timeout
                                                     // Note: This blocks the TCP handler thread, but timeout is bounded (default 2s)
                                                     // and readiness should be reached quickly after reload completes
@@ -644,23 +727,35 @@ impl TcpServer {
                                                         < timeout_val as u128
                                                     {
                                                         poll_count += 1;
-                                                        let elapsed_ms = wait_start.elapsed().as_millis();
-                                                        
-                                                        if poll_count % 20 == 0 || elapsed_ms > 1000 {
-                                                            log::debug!("Reload: wait loop poll #{}: elapsed={}ms, checking readiness", poll_count, elapsed_ms);
+                                                        let elapsed_ms =
+                                                            wait_start.elapsed().as_millis();
+
+                                                        if poll_count % 20 == 0 || elapsed_ms > 1000
+                                                        {
+                                                            log::debug!(
+                                                                "Reload: wait loop poll #{}: elapsed={}ms, checking readiness",
+                                                                poll_count,
+                                                                elapsed_ms
+                                                            );
                                                         }
-                                                        
+
                                                         let k = kanata.lock();
                                                         ready = k.is_ready();
                                                         drop(k);
 
                                                         if ready {
-                                                            log::debug!("Reload: wait loop detected ready=true after {}ms ({} polls)", elapsed_ms, poll_count);
+                                                            log::debug!(
+                                                                "Reload: wait loop detected ready=true after {}ms ({} polls)",
+                                                                elapsed_ms,
+                                                                poll_count
+                                                            );
                                                             break;
                                                         }
-                                                        
+
                                                         if poll_count % 20 == 0 {
-                                                            log::debug!("Reload: wait loop - ready=false, continuing to wait");
+                                                            log::debug!(
+                                                                "Reload: wait loop - ready=false, continuing to wait"
+                                                            );
                                                         }
 
                                                         // Small sleep to avoid busy-waiting
@@ -669,28 +764,38 @@ impl TcpServer {
                                                         );
                                                     }
 
-                                                    let final_elapsed = wait_start.elapsed().as_millis();
-                                                    log::debug!("Reload: wait loop completed: ready={}, elapsed={}ms, polls={}", ready, final_elapsed, poll_count);
+                                                    let final_elapsed =
+                                                        wait_start.elapsed().as_millis();
+                                                    log::debug!(
+                                                        "Reload: wait loop completed: ready={}, elapsed={}ms, polls={}",
+                                                        ready,
+                                                        final_elapsed,
+                                                        poll_count
+                                                    );
 
                                                     let result_msg = if ready {
                                                         ServerMessage::ReloadResult {
-                                                        request_id,
+                                                            request_id,
                                                             ready: true,
                                                             timeout_ms: None,
                                                         }
                                                     } else {
                                                         ServerMessage::ReloadResult {
-                                                        request_id,
+                                                            request_id,
                                                             ready: false,
                                                             timeout_ms: Some(timeout_val),
                                                         }
                                                     };
 
-                                                    log::debug!("Reload: Sending ReloadResult response");
+                                                    log::debug!(
+                                                        "Reload: Sending ReloadResult response"
+                                                    );
                                                     // Send ReloadResult details on second line
                                                     match stream.write_all(&result_msg.as_bytes()) {
                                                         Ok(_) => {
-                                                            log::debug!("Reload: ReloadResult sent successfully");
+                                                            log::debug!(
+                                                                "Reload: ReloadResult sent successfully"
+                                                            );
                                                             // Flush to ensure immediate delivery
                                                             let _ = stream.flush();
                                                         }
@@ -701,12 +806,21 @@ impl TcpServer {
                                                             // Don't break connection - first line already sent successfully
                                                         }
                                                     }
-                                                    
-                                                    let total_elapsed = reload_start_time.elapsed().as_millis();
-                                                    log::info!("Reload: Complete wait path finished: total_elapsed={}ms, wait_elapsed={}ms", total_elapsed, final_elapsed);
+
+                                                    let total_elapsed =
+                                                        reload_start_time.elapsed().as_millis();
+                                                    log::info!(
+                                                        "Reload: Complete wait path finished: total_elapsed={}ms, wait_elapsed={}ms",
+                                                        total_elapsed,
+                                                        final_elapsed
+                                                    );
                                                 } else {
-                                                    let total_elapsed = reload_start_time.elapsed().as_millis();
-                                                    log::debug!("Reload: Non-wait path finished: total_elapsed={}ms", total_elapsed);
+                                                    let total_elapsed =
+                                                        reload_start_time.elapsed().as_millis();
+                                                    log::debug!(
+                                                        "Reload: Non-wait path finished: total_elapsed={}ms",
+                                                        total_elapsed
+                                                    );
                                                 }
                                             }
                                         }

@@ -430,7 +430,10 @@ mod tests {
             request_id: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
-        assert!(!json.contains("request_id"), "request_id should be omitted when None");
+        assert!(
+            !json.contains("request_id"),
+            "request_id should be omitted when None"
+        );
     }
 
     #[test]
@@ -443,7 +446,10 @@ mod tests {
             request_id: Some(42),
         };
         let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains("\"request_id\":42"), "request_id should be included when Some");
+        assert!(
+            json.contains("\"request_id\":42"),
+            "request_id should be included when Some"
+        );
     }
 
     #[test]
