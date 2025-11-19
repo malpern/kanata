@@ -624,6 +624,9 @@ impl TcpServer {
                                     }
                                 }
                             }
+                            // Clean up connection when client disconnects (loop exits)
+                            log::info!("connection closed for {addr}, cleaning up");
+                            connections.lock().remove(&addr);
                         });
                     }
                     Err(_) => log::error!("not able to accept client connection"),
