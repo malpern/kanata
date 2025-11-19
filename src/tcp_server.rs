@@ -87,9 +87,6 @@ impl TcpServer {
         let listener = TcpListener::bind(self.address).expect("TCP server starts");
 
         let connections = self.connections.clone();
-        // Minimal subscription registry keyed by addr -> events
-        let subscriptions: Arc<Mutex<HashMap<String, Vec<String>>>> =
-            Arc::new(Mutex::new(HashMap::default()));
         let wakeup_channel = self.wakeup_channel.clone();
 
         std::thread::spawn(move || {
@@ -147,7 +144,6 @@ impl TcpServer {
                         log::info!("listening for incoming messages {addr}");
 
                         let connections = connections.clone();
-                        let subscriptions = subscriptions.clone();
                         let kanata = kanata.clone();
                         let wakeup_channel = wakeup_channel.clone();
                         std::thread::spawn(move || {
@@ -388,9 +384,11 @@ impl TcpServer {
                                                 let _ = stream.write_all(&msg.as_bytes());
                                             }
 
-                                            // Subscribe to events (stubbed)
-                                            ClientMessage::Subscribe { events, request_id, .. } => {
-                                                subscriptions.lock().insert(addr.clone(), events);
+                                            // Subscribe to events (not implemented)
+                                            // This is a stub that accepts Subscribe messages but doesn't actually
+                                            // implement event filtering/delivery. Clients will receive all broadcasts
+                                            // regardless of subscription.
+                                            ClientMessage::Subscribe { request_id, .. } => {
                                                 let _ = send_response(
                                                     &mut stream,
                                                     ServerResponse::Ok,
