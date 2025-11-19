@@ -18,35 +18,7 @@ use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 
 #[cfg(feature = "tcp_server")]
-use std::collections::HashSet;
-
-#[cfg(feature = "tcp_server")]
-pub struct ClientState {
-    pub stream: TcpStream,
-    pub subscriptions: Option<HashSet<String>>,
-}
-
-#[cfg(feature = "tcp_server")]
-impl ClientState {
-    pub fn new(stream: TcpStream) -> Self {
-        Self {
-            stream,
-            subscriptions: None, // None = receive all events
-        }
-    }
-
-    /// Check if this client should receive an event of this type.
-    /// None subscriptions = receive all (backward compatible)
-    pub fn should_receive(&self, event_type: &str) -> bool {
-        match &self.subscriptions {
-            None => true, // No subscription = all events
-            Some(subs) => subs.contains(event_type) || subs.contains("*"),
-        }
-    }
-}
-
-#[cfg(feature = "tcp_server")]
-pub type Connections = Arc<Mutex<HashMap<String, ClientState>>>;
+pub type Connections = Arc<Mutex<HashMap<String, TcpStream>>>;
 
 #[cfg(not(feature = "tcp_server"))]
 pub type Connections = ();
@@ -67,16 +39,6 @@ fn send_response(
         return false;
     }
     true
-}
-
-#[cfg(feature = "tcp_server")]
-pub fn get_event_type(msg: &ServerMessage) -> &'static str {
-    match msg {
-        ServerMessage::LayerChange { .. } => "LayerChange",
-        ServerMessage::ConfigFileReload { .. } => "ConfigFileReload",
-        ServerMessage::MessagePush { .. } => "MessagePush",
-        _ => "Other", // Catch-all for non-broadcast messages
-    }
 }
 
 #[cfg(feature = "tcp_server")]
@@ -125,6 +87,9 @@ impl TcpServer {
         let listener = TcpListener::bind(self.address).expect("TCP server starts");
 
         let connections = self.connections.clone();
+        // Minimal subscription registry keyed by addr -> events
+        let subscriptions: Arc<Mutex<HashMap<String, Vec<String>>>> =
+            Arc::new(Mutex::new(HashMap::default()));
         let wakeup_channel = self.wakeup_channel.clone();
 
         std::thread::spawn(move || {
@@ -175,15 +140,14 @@ impl TcpServer {
                             }
                         };
 
-                        connections
-                            .lock()
-                            .insert(addr.clone(), ClientState::new(stream_clone_for_map));
+                        connections.lock().insert(addr.clone(), stream_clone_for_map);
                         let reader = serde_json::Deserializer::from_reader(stream_clone_for_reader)
                             .into_iter::<ClientMessage>();
 
                         log::info!("listening for incoming messages {addr}");
 
                         let connections = connections.clone();
+                        let subscriptions = subscriptions.clone();
                         let kanata = kanata.clone();
                         let wakeup_channel = wakeup_channel.clone();
                         std::thread::spawn(move || {
@@ -219,7 +183,7 @@ impl TcpServer {
                                                 }
                                             }
                                             ClientMessage::ActOnFakeKey {
-                                                name, action, request_id, ..
+                                                name, action, ..
                                             } => {
                                                 let mut k = kanata.lock();
                                                 let index = match k.virtual_keys.get(&name) {
@@ -230,7 +194,6 @@ impl TcpServer {
                                                                 msg: format!(
                                                                 "unknown virtual/fake key: {name}"
                                                             ),
-                                                                request_id,
                                                             }
                                                             .as_bytes(),
                                                         ) {
@@ -344,7 +307,7 @@ impl TcpServer {
                                                     }
                                                 }
                                             }
-                                            ClientMessage::Status { request_id, .. } => {
+                                            ClientMessage::Status { .. } => {
                                                 let k = kanata.lock();
                                                 let engine_version =
                                                     env!("CARGO_PKG_VERSION").to_string();
@@ -354,7 +317,6 @@ impl TcpServer {
                                                 drop(k);
 
                                                 let msg = ServerMessage::StatusInfo {
-                                                    request_id,
                                                     engine_version,
                                                     uptime_s,
                                                     ready,
@@ -385,7 +347,7 @@ impl TcpServer {
                                             }
 
                                             // Validate config (preflight)
-                                            ClientMessage::Validate { config, request_id, .. } => {
+                                            ClientMessage::Validate { config, .. } => {
                                                 // Default: strict mode behavior; for now unused
                                                 // Try parsing using kanata_parser
                                                 let (warnings, errors) =
@@ -417,22 +379,15 @@ impl TcpServer {
                                                     break;
                                                 }
                                                 let msg = ServerMessage::ValidationResult {
-                                                    request_id,
                                                     warnings,
                                                     errors,
                                                 };
                                                 let _ = stream.write_all(&msg.as_bytes());
                                             }
 
-                                            // Subscribe to specific event types
-                                            // Stores subscription filter for this client.
-                                            // None subscription = all events (backward compatible)
-                                            ClientMessage::Subscribe { events, request_id, .. } => {
-                                                log::info!("client {addr} subscribed to events: {events:?}");
-                                                // Update this client's subscription filter
-                                                if let Some(client_state) = connections.lock().get_mut(&addr) {
-                                                    client_state.subscriptions = Some(events.into_iter().collect());
-                                                }
+                                            // Subscribe to events (stubbed)
+                                            ClientMessage::Subscribe { events, .. } => {
+                                                subscriptions.lock().insert(addr.clone(), events);
                                                 let _ = send_response(
                                                     &mut stream,
                                                     ServerResponse::Ok,
@@ -455,16 +410,6 @@ impl TcpServer {
                                             | ClientMessage::ReloadFile {
                                                 ..
                                             }) => {
-                                                // Extract request_id from the command
-                                                let request_id = match reload_cmd {
-                                                    ClientMessage::Reload { request_id, .. } => *request_id,
-                                                    ClientMessage::ReloadNext { request_id, .. } => *request_id,
-                                                    ClientMessage::ReloadPrev { request_id, .. } => *request_id,
-                                                    ClientMessage::ReloadNum { request_id, .. } => *request_id,
-                                                    ClientMessage::ReloadFile { request_id, .. } => *request_id,
-                                                    _ => None,
-                                                };
-
                                                 // Extract wait and timeout_ms from the command
                                                 let (wait_flag, timeout) = match reload_cmd {
                                                     ClientMessage::Reload {
@@ -498,21 +443,21 @@ impl TcpServer {
                                                 // Log specific action type
                                                 let reload_start_time = std::time::Instant::now();
                                                 match &reload_cmd {
-                                                    ClientMessage::Reload { request_id, .. } => {
+                                                    ClientMessage::Reload { .. } => {
                                                         log::info!("tcp server Reload action (wait={:?}, timeout_ms={:?})", wait_flag, timeout)
                                                     }
-                                                    ClientMessage::ReloadNext { request_id, .. } => {
+                                                    ClientMessage::ReloadNext { .. } => {
                                                         log::info!("tcp server ReloadNext action (wait={:?}, timeout_ms={:?})", wait_flag, timeout)
                                                     }
-                                                    ClientMessage::ReloadPrev { request_id, .. } => {
+                                                    ClientMessage::ReloadPrev { .. } => {
                                                         log::info!("tcp server ReloadPrev action (wait={:?}, timeout_ms={:?})", wait_flag, timeout)
                                                     }
-                                                    ClientMessage::ReloadNum { index, request_id, .. } => {
+                                                    ClientMessage::ReloadNum { index, .. } => {
                                                         log::info!(
                                                             "tcp server ReloadNum action: index {index} (wait={:?}, timeout_ms={:?})", wait_flag, timeout
                                                         )
                                                     }
-                                                    ClientMessage::ReloadFile { path, request_id, .. } => {
+                                                    ClientMessage::ReloadFile { path, .. } => {
                                                         log::info!(
                                                             "tcp server ReloadFile action: path {path} (wait={:?}, timeout_ms={:?})", wait_flag, timeout
                                                         )
@@ -557,7 +502,6 @@ impl TcpServer {
                                                             .to_string(),
                                                         line: None,
                                                         column: None,
-                                                        request_id,
                                                     };
                                                     let _ = stream.write_all(&detail.as_bytes());
                                                 }
@@ -608,13 +552,11 @@ impl TcpServer {
 
                                                     let result_msg = if ready {
                                                         ServerMessage::ReloadResult {
-                                                        request_id,
                                                             ready: true,
                                                             timeout_ms: None,
                                                         }
                                                     } else {
                                                         ServerMessage::ReloadResult {
-                                                        request_id,
                                                             ready: false,
                                                             timeout_ms: Some(timeout_val),
                                                         }
@@ -666,9 +608,6 @@ impl TcpServer {
                                     }
                                 }
                             }
-                            // Clean up connection when client disconnects (loop exits)
-                            log::info!("connection closed for {addr}, cleaning up");
-                            connections.lock().remove(&addr);
                         });
                     }
                     Err(_) => log::error!("not able to accept client connection"),
