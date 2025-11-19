@@ -377,6 +377,33 @@ mod tests {
     }
 
     #[test]
+    fn test_subscribe_message_json_format() {
+        // Test Subscribe with multiple event types
+        let msg = ClientMessage::Subscribe {
+            events: vec!["LayerChange".into(), "ready".into(), "reload".into()],
+            session_id: None,
+            request_id: Some(42),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("Subscribe"));
+        assert!(json.contains("\"events\""));
+        assert!(json.contains("LayerChange"));
+        assert!(json.contains("ready"));
+        assert!(json.contains("reload"));
+        assert!(json.contains("\"request_id\":42"));
+
+        // Test Subscribe with wildcard
+        let wildcard_msg = ClientMessage::Subscribe {
+            events: vec!["*".into()],
+            session_id: None,
+            request_id: None,
+        };
+        let wildcard_json = serde_json::to_string(&wildcard_msg).unwrap();
+        assert!(wildcard_json.contains("Subscribe"));
+        assert!(wildcard_json.contains("\"*\""));
+    }
+
+    #[test]
     fn test_validation_result_json_format() {
         let msg = ServerMessage::ValidationResult {
             warnings: vec![ValidationItem {
