@@ -245,7 +245,7 @@ pub struct Kanata {
     unshifted_keys: Vec<KeyCode>,
     /// Keep track of last pressed key for [`CustomAction::Repeat`].
     last_pressed_key: KeyCode,
-    #[cfg(any(feature = "tcp_server", feature = "udp_server"))]
+    #[cfg(feature = "tcp_server")]
     /// Names of fake keys mapped to their index in the fake keys row
     pub virtual_keys: HashMap<String, usize>,
     /// The maximum value of switch's key-timing item in the configuration.
@@ -480,7 +480,7 @@ impl Kanata {
             unmodded_mods: UnmodMods::empty(),
             unshifted_keys: vec![],
             last_pressed_key: KeyCode::No,
-            #[cfg(any(feature = "tcp_server", feature = "udp_server"))]
+            #[cfg(feature = "tcp_server")]
             virtual_keys: cfg.fake_keys,
             switch_max_key_timing: cfg.switch_max_key_timing,
             #[cfg(feature = "tcp_server")]
@@ -632,7 +632,7 @@ impl Kanata {
             unmodded_mods: UnmodMods::empty(),
             unshifted_keys: vec![],
             last_pressed_key: KeyCode::No,
-            #[cfg(any(feature = "tcp_server", feature = "udp_server"))]
+            #[cfg(feature = "tcp_server")]
             virtual_keys: cfg.fake_keys,
             switch_max_key_timing: cfg.switch_max_key_timing,
             #[cfg(feature = "tcp_server")]
@@ -708,7 +708,7 @@ impl Kanata {
             delay: cfg.options.dynamic_macro_replay_delay_behaviour,
         };
         self.switch_max_key_timing = cfg.switch_max_key_timing;
-        #[cfg(any(feature = "tcp_server", feature = "udp_server"))]
+        #[cfg(feature = "tcp_server")]
         {
             self.virtual_keys = cfg.fake_keys;
         }
@@ -802,10 +802,9 @@ impl Kanata {
             let reload_complete_time = web_time::Instant::now();
             self.last_reload_time = Some(reload_complete_time);
             self.last_reload_ok = true;
-            log::info!("do_live_reload: Reload completed successfully in {}ms, last_reload_time set, is_ready() should now return true", reload_start.elapsed().as_millis());
-        } else {
-            log::info!("do_live_reload: Reload completed successfully in {}ms", reload_start.elapsed().as_millis());
         }
+
+        log::info!("do_live_reload: Reload completed successfully in {}ms", reload_start.elapsed().as_millis());
 
         Ok(())
     }
@@ -1938,7 +1937,7 @@ impl Kanata {
         Ok(live_reload_requested)
     }
 
-    #[cfg(any(feature = "tcp_server", feature = "udp_server"))]
+    #[cfg(feature = "tcp_server")]
     pub fn change_layer(&mut self, layer_name: String) {
         for (i, l) in self.layer_info.iter().enumerate() {
             if l.name == layer_name {
@@ -1959,7 +1958,7 @@ impl Kanata {
 
     /// Handle a client command from TCP/UDP server and return a result.
     /// This centralizes validation logic and provides proper error messages.
-    #[cfg(any(feature = "tcp_server", feature = "udp_server"))]
+    #[cfg(feature = "tcp_server")]
     pub fn handle_client_command(
         &mut self,
         command: kanata_tcp_protocol::ClientMessage,
