@@ -27,16 +27,6 @@ pub enum ServerMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         request_id: Option<u64>,
     },
-    // UDP Authentication messages
-    AuthResult {
-        success: bool,
-        session_id: Option<String>,
-        expires_in_seconds: Option<u64>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        request_id: Option<u64>,
-    },
-    AuthRequired,
-    SessionExpired,
     // Protocol expansion messages
     HelloOk {
         version: String,
@@ -127,36 +117,20 @@ impl ServerMessage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientMessage {
-    // UDP Authentication message
-    Authenticate {
-        token: String,
-        client_name: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        request_id: Option<u64>,
-    },
-    // Existing messages with optional session_id for UDP auth
     ChangeLayer {
         new: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         request_id: Option<u64>,
     },
     RequestLayerNames {
         #[serde(skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         request_id: Option<u64>,
     },
     RequestCurrentLayerInfo {
         #[serde(skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         request_id: Option<u64>,
     },
     RequestCurrentLayerName {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         request_id: Option<u64>,
     },
@@ -164,21 +138,15 @@ pub enum ClientMessage {
         name: String,
         action: FakeKeyActionMessage,
         #[serde(skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         request_id: Option<u64>,
     },
     SetMouse {
         x: u16,
         y: u16,
         #[serde(skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         request_id: Option<u64>,
     },
     Reload {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         wait: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -188,8 +156,6 @@ pub enum ClientMessage {
     },
     ReloadNext {
         #[serde(skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         wait: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         timeout_ms: Option<u64>,
@@ -197,8 +163,6 @@ pub enum ClientMessage {
         request_id: Option<u64>,
     },
     ReloadPrev {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         wait: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -209,8 +173,6 @@ pub enum ClientMessage {
     ReloadNum {
         index: usize,
         #[serde(skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         wait: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         timeout_ms: Option<u64>,
@@ -220,8 +182,6 @@ pub enum ClientMessage {
     ReloadFile {
         path: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         wait: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         timeout_ms: Option<u64>,
@@ -230,13 +190,9 @@ pub enum ClientMessage {
     },
     Hello {
         #[serde(skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         request_id: Option<u64>,
     },
     Status {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         request_id: Option<u64>,
     },
@@ -246,14 +202,10 @@ pub enum ClientMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         mode: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         request_id: Option<u64>,
     },
     Subscribe {
         events: Vec<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         request_id: Option<u64>,
     },
@@ -381,7 +333,6 @@ mod tests {
         // Test Subscribe with multiple event types
         let msg = ClientMessage::Subscribe {
             events: vec!["LayerChange".into(), "ready".into(), "reload".into()],
-            session_id: None,
             request_id: Some(42),
         };
         let json = serde_json::to_string(&msg).unwrap();
@@ -395,7 +346,6 @@ mod tests {
         // Test Subscribe with wildcard
         let wildcard_msg = ClientMessage::Subscribe {
             events: vec!["*".into()],
-            session_id: None,
             request_id: None,
         };
         let wildcard_json = serde_json::to_string(&wildcard_msg).unwrap();

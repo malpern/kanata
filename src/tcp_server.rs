@@ -266,13 +266,6 @@ impl TcpServer {
 
                                         log::debug!("tcp server received command: {:?}", event);
                                         match event {
-                                            // TCP server ignores authentication messages since TCP doesn't use auth
-                                            ClientMessage::Authenticate { .. } => {
-                                                log::debug!(
-                                                    "TCP server ignoring authentication message (not needed for TCP)"
-                                                );
-                                                continue;
-                                            }
                                             ClientMessage::ChangeLayer { new, .. } => {
                                                 kanata.lock().change_layer(new);
                                             }
