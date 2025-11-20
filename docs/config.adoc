@@ -4653,12 +4653,6 @@ This pattern maintains backward compatibility: older clients that only read the 
   - Response: First line `{"status":"Ok"}`, second line `{"ValidationResult":{"warnings":[...],"errors":[...]}}`
   - Each item: `{ "message":"...", "line":N?, "column":N?, "code":"..."? }`
 
-**Event subscription (minimal):**
-- `{"Subscribe":{"events":["ready","config_error"]}}` — subscribe to optional event messages
-  - Server may emit `{"Ready":{"at":"<epoch_seconds>"}}` or
-    `{"ConfigError":{"code":"CONFIG_PARSE","message":"...","line":N?,"column":N?,"at":"<epoch_seconds>"}}`
-  - Implementation is minimal in this PR; future work may add keep‑alives and more events
-
 [[args-quiet]]
 === Disable logs other than errors: `-q`, `--quiet`
 

@@ -45,7 +45,7 @@ fn main() {
     let reader_stream = kanata_conn;
 
     // Send Hello command to detect capabilities
-    let hello_msg = serde_json::to_string(&ClientMessage::Hello { session_id: None })
+    let hello_msg = serde_json::to_string(&ClientMessage::Hello { request_id: None })
         .expect("Hello message should serialize");
     writer_stream
         .write_all(hello_msg.as_bytes())
@@ -86,37 +86,37 @@ fn print_usage() {
         .expect("deserializable"),
         serde_json::to_string(&ClientMessage::ChangeLayer {
             new: "requested-layer".into(),
-            session_id: None,
+            request_id: None,
         })
         .expect("deserializable"),
         serde_json::to_string(&ClientMessage::Reload {
-            session_id: None,
+            request_id: None,
             wait: None,
             timeout_ms: None
         })
         .expect("deserializable"),
         serde_json::to_string(&ClientMessage::ReloadNext {
-            session_id: None,
+            request_id: None,
             wait: None,
             timeout_ms: None
         })
         .expect("deserializable"),
         serde_json::to_string(&ClientMessage::ReloadPrev {
-            session_id: None,
+            request_id: None,
             wait: None,
             timeout_ms: None
         })
         .expect("deserializable"),
         serde_json::to_string(&ClientMessage::ReloadNum {
             index: 1,
-            session_id: None,
+            request_id: None,
             wait: None,
             timeout_ms: None
         })
         .expect("deserializable"),
         serde_json::to_string(&ClientMessage::ReloadFile {
             path: "/path/to/config.kbd".to_string(),
-            session_id: None,
+            request_id: None,
             wait: None,
             timeout_ms: None
         })
@@ -166,7 +166,6 @@ fn write_to_kanata(mut s: TcpStream) {
     log::info!("  - status: get engine status");
     log::info!("  - reload-wait: reload with readiness wait");
     log::info!("  - validate: send a small validation request");
-    log::info!("  - subscribe: subscribe to ready/config_error events");
     let mut input = String::new();
     loop {
         stdin().read_line(&mut input).expect("stdin is readable");
@@ -178,13 +177,13 @@ fn write_to_kanata(mut s: TcpStream) {
             serde_json::to_string(&ClientMessage::ActOnFakeKey {
                 name: fkname,
                 action: FakeKeyActionMessage::Tap,
-                session_id: None,
+                request_id: None,
             })
             .expect("deserializable")
         } else if command == "reload" {
             log::info!("writer: telling kanata to reload current config");
             serde_json::to_string(&ClientMessage::Reload {
-                session_id: None,
+                request_id: None,
                 wait: None,
                 timeout_ms: None,
             })
@@ -192,7 +191,7 @@ fn write_to_kanata(mut s: TcpStream) {
         } else if command == "reload-next" {
             log::info!("writer: telling kanata to reload next config");
             serde_json::to_string(&ClientMessage::ReloadNext {
-                session_id: None,
+                request_id: None,
                 wait: None,
                 timeout_ms: None,
             })
@@ -200,7 +199,7 @@ fn write_to_kanata(mut s: TcpStream) {
         } else if command == "reload-prev" {
             log::info!("writer: telling kanata to reload previous config");
             serde_json::to_string(&ClientMessage::ReloadPrev {
-                session_id: None,
+                request_id: None,
                 wait: None,
                 timeout_ms: None,
             })
@@ -212,7 +211,7 @@ fn write_to_kanata(mut s: TcpStream) {
                     log::info!("writer: telling kanata to reload config at index {index}");
                     serde_json::to_string(&ClientMessage::ReloadNum {
                         index,
-                        session_id: None,
+                        request_id: None,
                         wait: None,
                         timeout_ms: None,
                     })
@@ -229,18 +228,18 @@ fn write_to_kanata(mut s: TcpStream) {
             log::info!("writer: telling kanata to reload config file \"{path}\"");
             serde_json::to_string(&ClientMessage::ReloadFile {
                 path,
-                session_id: None,
+                request_id: None,
                 wait: None,
                 timeout_ms: None,
             })
             .expect("deserializable")
         } else if command == "hello" {
             log::info!("writer: sending Hello command");
-            serde_json::to_string(&ClientMessage::Hello { session_id: None })
+            serde_json::to_string(&ClientMessage::Hello { request_id: None })
                 .expect("deserializable")
         } else if command == "status" {
             log::info!("writer: requesting status");
-            serde_json::to_string(&ClientMessage::Status { session_id: None })
+            serde_json::to_string(&ClientMessage::Status { request_id: None })
                 .expect("deserializable")
         } else if command == "validate" {
             // Minimal demo validation payload
@@ -249,20 +248,13 @@ fn write_to_kanata(mut s: TcpStream) {
             serde_json::to_string(&ClientMessage::Validate {
                 config: cfg,
                 mode: Some("strict".into()),
-                session_id: None,
-            })
-            .expect("deserializable")
-        } else if command == "subscribe" {
-            log::info!("writer: subscribing to events");
-            serde_json::to_string(&ClientMessage::Subscribe {
-                events: vec!["ready".into(), "config_error".into()],
-                session_id: None,
+                request_id: None,
             })
             .expect("deserializable")
         } else if command == "reload-wait" {
             log::info!("writer: telling kanata to reload current config with wait");
             serde_json::to_string(&ClientMessage::Reload {
-                session_id: None,
+                request_id: None,
                 wait: Some(true),
                 timeout_ms: Some(2000),
             })
@@ -271,7 +263,7 @@ fn write_to_kanata(mut s: TcpStream) {
             log::info!("writer: telling kanata to change layer to \"{command}\"");
             serde_json::to_string(&ClientMessage::ChangeLayer {
                 new: command,
-                session_id: None,
+                request_id: None,
             })
             .expect("deserializable")
         };
@@ -318,6 +310,7 @@ fn read_from_kanata(s: TcpStream) {
                                     version,
                                     protocol,
                                     capabilities,
+                                    ..
                                 } => {
                                     log::info!(
                                         "HelloOk: version={}, protocol={}, capabilities={:?}",
@@ -331,6 +324,7 @@ fn read_from_kanata(s: TcpStream) {
                                     uptime_s,
                                     ready,
                                     last_reload,
+                                    ..
                                 } => {
                                     log::info!(
                                         "StatusInfo: version={}, uptime={}s, ready={}, last_reload={{ok={}, at={}}}",
@@ -341,7 +335,7 @@ fn read_from_kanata(s: TcpStream) {
                                         last_reload.at
                                     );
                                 }
-                                ServerMessage::ReloadResult { ready, timeout_ms } => {
+                                ServerMessage::ReloadResult { ready, timeout_ms, .. } => {
                                     if ready {
                                         log::info!("ReloadResult: ready=true");
                                     } else {
@@ -381,6 +375,7 @@ fn read_from_kanata(s: TcpStream) {
                 version,
                 protocol,
                 capabilities,
+                ..
             } => {
                 log::info!(
                     "reader: HelloOk - version={}, protocol={}, capabilities={:?}",
@@ -394,6 +389,7 @@ fn read_from_kanata(s: TcpStream) {
                 uptime_s,
                 ready,
                 last_reload,
+                ..
             } => {
                 log::info!(
                     "reader: StatusInfo - version={}, uptime={}s, ready={}, last_reload={{ok={}, at={}}}",
@@ -404,7 +400,7 @@ fn read_from_kanata(s: TcpStream) {
                     last_reload.at
                 );
             }
-            ServerMessage::ReloadResult { ready, timeout_ms } => {
+            ServerMessage::ReloadResult { ready, timeout_ms, .. } => {
                 if ready {
                     log::info!("reader: ReloadResult - ready=true");
                 } else {
