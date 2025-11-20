@@ -204,11 +204,6 @@ pub enum ClientMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         request_id: Option<u64>,
     },
-    Subscribe {
-        events: Vec<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        request_id: Option<u64>,
-    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -326,31 +321,6 @@ mod tests {
         assert!(ready_json.contains("\"ready\":true"));
         assert!(not_ready_json.contains("\"ready\":false"));
         assert!(not_ready_json.contains("\"timeout_ms\":2000"));
-    }
-
-    #[test]
-    fn test_subscribe_message_json_format() {
-        // Test Subscribe with multiple event types
-        let msg = ClientMessage::Subscribe {
-            events: vec!["LayerChange".into(), "ready".into(), "reload".into()],
-            request_id: Some(42),
-        };
-        let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains("Subscribe"));
-        assert!(json.contains("\"events\""));
-        assert!(json.contains("LayerChange"));
-        assert!(json.contains("ready"));
-        assert!(json.contains("reload"));
-        assert!(json.contains("\"request_id\":42"));
-
-        // Test Subscribe with wildcard
-        let wildcard_msg = ClientMessage::Subscribe {
-            events: vec!["*".into()],
-            request_id: None,
-        };
-        let wildcard_json = serde_json::to_string(&wildcard_msg).unwrap();
-        assert!(wildcard_json.contains("Subscribe"));
-        assert!(wildcard_json.contains("\"*\""));
     }
 
     #[test]

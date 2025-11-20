@@ -2157,20 +2157,13 @@ impl Kanata {
                         panic!("channel disconnected")
                     }
                     Ok(event) => {
-                        let event_type = crate::tcp_server::get_event_type(&event);
                         let notification = event.as_bytes();
                         let mut clients = clients.lock();
                         let mut stale_clients = vec![];
                         for (id, client_state) in &mut *clients {
-                            // Check if client should receive this event type
-                            if !client_state.should_receive(event_type) {
-                                log::debug!("client {id} filtered out {event_type} event");
-                                continue;
-                            }
-
                             match client_state.stream.write_all(&notification) {
                                 Ok(_) => {
-                                    log::debug!("event notification sent to {id}: {event_type}");
+                                    log::debug!("event notification sent to {id}");
                                 }
                                 Err(e) => {
                                     log::warn!(

@@ -18,8 +18,6 @@ use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 
 #[cfg(feature = "tcp_server")]
-use std::collections::HashSet;
-#[cfg(feature = "tcp_server")]
 use std::time::Instant;
 
 // Connection limits to prevent resource exhaustion and keyboard freeze
@@ -31,7 +29,6 @@ const STALE_CONNECTION_TIMEOUT_SECS: u64 = 300; // 5 minutes
 #[cfg(feature = "tcp_server")]
 pub struct ClientState {
     pub stream: TcpStream,
-    pub subscriptions: Option<HashSet<String>>,
     pub last_activity: Instant,
 }
 
@@ -40,17 +37,7 @@ impl ClientState {
     pub fn new(stream: TcpStream) -> Self {
         Self {
             stream,
-            subscriptions: None, // None = receive all events
             last_activity: Instant::now(),
-        }
-    }
-
-    /// Check if this client should receive an event of this type.
-    /// None subscriptions = receive all (backward compatible)
-    pub fn should_receive(&self, event_type: &str) -> bool {
-        match &self.subscriptions {
-            None => true, // No subscription = all events
-            Some(subs) => subs.contains(event_type) || subs.contains("*"),
         }
     }
 
@@ -89,15 +76,6 @@ fn send_response(
     true
 }
 
-#[cfg(feature = "tcp_server")]
-pub fn get_event_type(msg: &ServerMessage) -> &'static str {
-    match msg {
-        ServerMessage::LayerChange { .. } => "LayerChange",
-        ServerMessage::ConfigFileReload { .. } => "ConfigFileReload",
-        ServerMessage::MessagePush { .. } => "MessagePush",
-        _ => "Other", // Catch-all for non-broadcast messages
-    }
-}
 
 #[cfg(feature = "tcp_server")]
 fn to_action(val: FakeKeyActionMessage) -> FakeKeyAction {
@@ -494,30 +472,6 @@ impl TcpServer {
                                                     errors,
                                                 };
                                                 let _ = stream.write_all(&msg.as_bytes());
-                                            }
-
-                                            // Subscribe to specific event types
-                                            // Stores subscription filter for this client.
-                                            // None subscription = all events (backward compatible)
-                                            ClientMessage::Subscribe {
-                                                events, request_id, ..
-                                            } => {
-                                                log::info!(
-                                                    "client {addr} subscribed to events: {events:?} (request_id={request_id:?})"
-                                                );
-                                                // Update this client's subscription filter
-                                                if let Some(client_state) =
-                                                    connections.lock().get_mut(&addr)
-                                                {
-                                                    client_state.subscriptions =
-                                                        Some(events.into_iter().collect());
-                                                }
-                                                let _ = send_response(
-                                                    &mut stream,
-                                                    ServerResponse::Ok,
-                                                    &connections,
-                                                    &addr,
-                                                );
                                             }
 
                                             // Handle reload commands with unified response protocol
