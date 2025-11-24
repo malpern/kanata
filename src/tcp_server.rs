@@ -15,6 +15,8 @@ use kanata_parser::cfg::SimpleSExpr;
 #[cfg(feature = "tcp_server")]
 use std::io::Write;
 #[cfg(feature = "tcp_server")]
+use std::io;
+#[cfg(feature = "tcp_server")]
 use std::net::{TcpListener, TcpStream};
 
 #[cfg(feature = "tcp_server")]
@@ -74,6 +76,53 @@ fn send_response(
         return false;
     }
     true
+}
+
+// Best-effort write that treats BrokenPipe as a clean disconnect and always
+// cleans up the connection entry.
+#[cfg(feature = "tcp_server")]
+fn write_with_disconnect_handling(
+    stream: &mut TcpStream,
+    bytes: &[u8],
+    addr: &str,
+    connections: &Connections,
+    context: &str,
+) -> bool {
+    match stream.write_all(bytes) {
+        Ok(_) => true,
+        Err(e) => {
+            if e.kind() == io::ErrorKind::BrokenPipe {
+                log::warn!(
+                    "{context}: client {addr} disconnected before response was fully written (broken pipe)"
+                );
+            } else {
+                log::error!("{context}: {e}");
+            }
+            connections.lock().remove(addr);
+            false
+        }
+    }
+}
+
+// RAII guard to ensure we always remove the connection entry when a handler exits.
+#[cfg(feature = "tcp_server")]
+struct ConnectionCleanup {
+    addr: String,
+    connections: Connections,
+}
+
+#[cfg(feature = "tcp_server")]
+impl ConnectionCleanup {
+    fn new(addr: String, connections: Connections) -> Self {
+        Self { addr, connections }
+    }
+}
+
+#[cfg(feature = "tcp_server")]
+impl Drop for ConnectionCleanup {
+    fn drop(&mut self) {
+        self.connections.lock().remove(&self.addr);
+    }
 }
 
 
@@ -234,6 +283,8 @@ impl TcpServer {
                         let kanata = kanata.clone();
                         let wakeup_channel = wakeup_channel.clone();
                         std::thread::spawn(move || {
+                            let _cleanup_guard =
+                                ConnectionCleanup::new(addr.clone(), connections.clone());
                             for v in reader {
                                 match v {
                                     Ok(event) => {
@@ -256,12 +307,13 @@ impl TcpServer {
                                                         .map(|info| info.name.clone())
                                                         .collect::<Vec<_>>(),
                                                 };
-                                                match stream.write_all(&msg.as_bytes()) {
-                                                    Ok(_) => {}
-                                                    Err(err) => log::error!(
-                                                        "server could not send response: {err}"
-                                                    ),
-                                                }
+                                                let _ = write_with_disconnect_handling(
+                                                    &mut stream,
+                                                    &msg.as_bytes(),
+                                                    &addr,
+                                                    &connections,
+                                                    "server could not send response",
+                                                );
                                             }
                                             ClientMessage::ActOnFakeKey {
                                                 name,
@@ -335,12 +387,13 @@ impl TcpServer {
                                                         .clone(),
                                                 };
                                                 drop(k);
-                                                match stream.write_all(&msg.as_bytes()) {
-                                                    Ok(_) => {}
-                                                    Err(err) => log::error!(
-                                                        "Error writing response to RequestCurrentLayerInfo: {err}"
-                                                    ),
-                                                }
+                                                let _ = write_with_disconnect_handling(
+                                                    &mut stream,
+                                                    &msg.as_bytes(),
+                                                    &addr,
+                                                    &connections,
+                                                    "Error writing response to RequestCurrentLayerInfo",
+                                                );
                                             }
                                             ClientMessage::RequestCurrentLayerName { .. } => {
                                                 let mut k = kanata.lock();
@@ -349,12 +402,13 @@ impl TcpServer {
                                                     name: k.layer_info[cur_layer].name.clone(),
                                                 };
                                                 drop(k);
-                                                match stream.write_all(&msg.as_bytes()) {
-                                                    Ok(_) => {}
-                                                    Err(err) => log::error!(
-                                                        "Error writing response to RequestCurrentLayerName: {err}"
-                                                    ),
-                                                }
+                                                let _ = write_with_disconnect_handling(
+                                                    &mut stream,
+                                                    &msg.as_bytes(),
+                                                    &addr,
+                                                    &connections,
+                                                    "Error writing response to RequestCurrentLayerName",
+                                                );
                                             }
                                             ClientMessage::Hello { request_id, .. } => {
                                                 let version = env!("CARGO_PKG_VERSION").to_string();
@@ -379,17 +433,15 @@ impl TcpServer {
                                                     break;
                                                 }
                                                 // Send HelloOk details on second line
-                                                match stream.write_all(&msg.as_bytes()) {
-                                                    Ok(_) => {
-                                                        // Flush to ensure immediate delivery
-                                                        let _ = stream.flush();
-                                                    }
-                                                    Err(err) => {
-                                                        log::error!(
-                                                            "Error writing HelloOk response: {err}"
-                                                        );
-                                                        // Don't break connection - first line already sent successfully
-                                                    }
+                                                if write_with_disconnect_handling(
+                                                    &mut stream,
+                                                    &msg.as_bytes(),
+                                                    &addr,
+                                                    &connections,
+                                                    "Error writing HelloOk response",
+                                                ) {
+                                                    // Flush to ensure immediate delivery
+                                                    let _ = stream.flush();
                                                 }
                                             }
                                             ClientMessage::Status { request_id, .. } => {
@@ -418,17 +470,15 @@ impl TcpServer {
                                                     break;
                                                 }
                                                 // Send StatusInfo details on second line
-                                                match stream.write_all(&msg.as_bytes()) {
-                                                    Ok(_) => {
-                                                        // Flush to ensure immediate delivery
-                                                        let _ = stream.flush();
-                                                    }
-                                                    Err(err) => {
-                                                        log::error!(
-                                                            "Error writing StatusInfo response: {err}"
-                                                        );
-                                                        // Don't break connection - first line already sent successfully
-                                                    }
+                                                if write_with_disconnect_handling(
+                                                    &mut stream,
+                                                    &msg.as_bytes(),
+                                                    &addr,
+                                                    &connections,
+                                                    "Error writing StatusInfo response",
+                                                ) {
+                                                    // Flush to ensure immediate delivery
+                                                    let _ = stream.flush();
                                                 }
                                             }
 
@@ -471,7 +521,13 @@ impl TcpServer {
                                                     warnings,
                                                     errors,
                                                 };
-                                                let _ = stream.write_all(&msg.as_bytes());
+                                                let _ = write_with_disconnect_handling(
+                                                    &mut stream,
+                                                    &msg.as_bytes(),
+                                                    &addr,
+                                                    &connections,
+                                                    "Error writing ValidationResult response",
+                                                );
                                             }
 
                                             // Handle reload commands with unified response protocol
@@ -738,20 +794,18 @@ impl TcpServer {
                                                         "Reload: Sending ReloadResult response"
                                                     );
                                                     // Send ReloadResult details on second line
-                                                    match stream.write_all(&result_msg.as_bytes()) {
-                                                        Ok(_) => {
-                                                            log::debug!(
-                                                                "Reload: ReloadResult sent successfully"
-                                                            );
-                                                            // Flush to ensure immediate delivery
-                                                            let _ = stream.flush();
-                                                        }
-                                                        Err(err) => {
-                                                            log::error!(
-                                                                "Error writing ReloadResult response: {err}"
-                                                            );
-                                                            // Don't break connection - first line already sent successfully
-                                                        }
+                                                    if write_with_disconnect_handling(
+                                                        &mut stream,
+                                                        &result_msg.as_bytes(),
+                                                        &addr,
+                                                        &connections,
+                                                        "Error writing ReloadResult response",
+                                                    ) {
+                                                        log::debug!(
+                                                            "Reload: ReloadResult sent successfully"
+                                                        );
+                                                        // Flush to ensure immediate delivery
+                                                        let _ = stream.flush();
                                                     }
 
                                                     let total_elapsed =
