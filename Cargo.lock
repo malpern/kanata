@@ -756,6 +756,7 @@ dependencies = [
  "regex",
  "rustc-hash",
  "sd-notify",
+ "serde",
  "serde_json",
  "signal-hook",
  "simplelog",
@@ -827,6 +828,8 @@ dependencies = [
  "dirs",
  "kanata",
  "log",
+ "serde",
+ "serde_json",
  "simplelog",
  "time",
 ]

@@ -79,6 +79,11 @@ test/sim.txt in the current working directory and
     /// This flag generates an error if the binary is compiled without simulated output.
     #[arg(short = 'o', long, verbatim_doc_comment)]
     out: Option<String>,
+
+    /// Output simulation results as JSON instead of ASCII timeline.
+    /// JSON output includes structured events with timestamps, layer changes, and actions.
+    #[arg(long, verbatim_doc_comment)]
+    json: bool,
 }
 
 fn log_init() {
@@ -100,11 +105,12 @@ fn log_init() {
 }
 
 /// Parse CLI arguments
-fn cli_init_fsim() -> Result<(ValidatedArgs, Vec<PathBuf>, Option<String>)> {
+fn cli_init_fsim() -> Result<(ValidatedArgs, Vec<PathBuf>, Option<String>, bool)> {
     let args = Args::parse();
     let cfg_paths = args.cfg.unwrap_or_else(default_cfg);
     let sim_paths = args.sim.unwrap_or_else(default_sim);
     let sim_appendix = args.out;
+    let json_output = args.json;
 
     log::info!(
         "kanata_simulated_input v{} starting",
@@ -143,6 +149,7 @@ fn cli_init_fsim() -> Result<(ValidatedArgs, Vec<PathBuf>, Option<String>)> {
         },
         sim_paths,
         sim_appendix,
+        json_output,
     ))
 }
 
@@ -166,10 +173,6 @@ fn kbd_out_log(
     _key_code: Option<OsCode>,
     _tick: Option<u128>,
 ) {
-    let a = LogFmtT::InTick;
-    if a == LogFmtT::InTick {
-        println!("{}", 42)
-    };
     #[cfg(all(
         not(feature = "simulated_input"),
         not(feature = "passthru_ahk"),
@@ -202,7 +205,7 @@ fn kbd_out_log(
 }
 fn main_impl() -> Result<()> {
     log_init();
-    let (args, sim_paths, _sim_appendix) = cli_init_fsim()?;
+    let (args, sim_paths, _sim_appendix, json_output) = cli_init_fsim()?;
     #[cfg(not(feature = "simulated_output"))]
     {
         if _sim_appendix.is_some() {
@@ -229,6 +232,7 @@ fn main_impl() -> Result<()> {
                             let key_code =
                                 str_to_oscode(val).ok_or_else(|| anyhow!("unknown key: {val}"))?;
                             kbd_out_log(&mut k.kbd_out, LogFmtT::InKeyDown, Some(key_code), None);
+                            k.kbd_out.record_input_press(key_code);
                             k.handle_input_event(&KeyEvent {
                                 code: key_code,
                                 value: KeyValue::Press,
@@ -238,6 +242,7 @@ fn main_impl() -> Result<()> {
                             let key_code =
                                 str_to_oscode(val).ok_or_else(|| anyhow!("unknown key: {val}"))?;
                             kbd_out_log(&mut k.kbd_out, LogFmtT::InKeyUp, Some(key_code), None);
+                            k.kbd_out.record_input_release(key_code);
                             k.handle_input_event(&KeyEvent {
                                 code: key_code,
                                 value: KeyValue::Release,
@@ -247,6 +252,7 @@ fn main_impl() -> Result<()> {
                             let key_code =
                                 str_to_oscode(val).ok_or_else(|| anyhow!("unknown key: {val}"))?;
                             kbd_out_log(&mut k.kbd_out, LogFmtT::InKeyRep, Some(key_code), None);
+                            k.kbd_out.record_input_repeat(key_code);
                             k.handle_input_event(&KeyEvent {
                                 code: key_code,
                                 value: KeyValue::Repeat,
@@ -272,6 +278,7 @@ fn main_impl() -> Result<()> {
                                     Some(key_code),
                                     None,
                                 );
+                                k.kbd_out.record_input_press(key_code);
                                 k.handle_input_event(&KeyEvent {
                                     code: key_code,
                                     value: KeyValue::Press,
@@ -281,6 +288,7 @@ fn main_impl() -> Result<()> {
                                 let key_code = str_to_oscode(val)
                                     .ok_or_else(|| anyhow!("unknown key: {val}"))?;
                                 kbd_out_log(&mut k.kbd_out, LogFmtT::InKeyUp, Some(key_code), None);
+                                k.kbd_out.record_input_release(key_code);
                                 k.handle_input_event(&KeyEvent {
                                     code: key_code,
                                     value: KeyValue::Release,
@@ -295,6 +303,7 @@ fn main_impl() -> Result<()> {
                                     Some(key_code),
                                     None,
                                 );
+                                k.kbd_out.record_input_repeat(key_code);
                                 k.handle_input_event(&KeyEvent {
                                     code: key_code,
                                     value: KeyValue::Repeat,
@@ -306,18 +315,28 @@ fn main_impl() -> Result<()> {
                 }
             }
         }
-        #[cfg(all(
-            not(feature = "simulated_input"),
-            not(feature = "passthru_ahk"),
-            feature = "simulated_output"
-        ))]
-        println!("{}", k.kbd_out.outputs.events.join("\n"));
-        #[cfg(all(
-            not(feature = "simulated_input"),
-            not(feature = "passthru_ahk"),
-            feature = "simulated_output"
-        ))]
-        k.kbd_out.log.end(config_sim_file, _sim_appendix.clone());
+
+        // Output results
+        if json_output {
+            // Get final layer name
+            let final_layer = k.layer_info.get(k.layout.b().current_layer())
+                .map(|info| info.name.clone());
+            let result = k.kbd_out.build_simulation_result(final_layer);
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        } else {
+            #[cfg(all(
+                not(feature = "simulated_input"),
+                not(feature = "passthru_ahk"),
+                feature = "simulated_output"
+            ))]
+            println!("{}", k.kbd_out.outputs.events.join("\n"));
+            #[cfg(all(
+                not(feature = "simulated_input"),
+                not(feature = "passthru_ahk"),
+                feature = "simulated_output"
+            ))]
+            k.kbd_out.log.end(config_sim_file, _sim_appendix.clone());
+        }
     }
 
     Ok(())

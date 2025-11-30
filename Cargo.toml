@@ -50,6 +50,7 @@ parking_lot = "0.12"
 radix_trie = "0.2"
 rustc-hash = "1.1.0"
 simplelog = "0.12.0"
+serde = { version = "1", features = ["derive"], default-features = false, optional = true }
 serde_json = { version = "1", features = ["std"], default-features = false, optional = true }
 time = "0.3.36"
 web-time = "1.1.0"
@@ -129,7 +130,7 @@ win_llhook_read_scancodes = ["kanata-parser/win_llhook_read_scancodes"]
 win_manifest = ["embed-resource", "indoc", "regex"]
 cmd = ["kanata-parser/cmd"]
 interception_driver = ["kanata-interception", "kanata-parser/interception_driver"]
-simulated_output = ["indoc"]
+simulated_output = ["indoc", "serde", "serde_json"]
 simulated_input = ["indoc"]
 passthru_ahk = ["simulated_input","simulated_output"]
 gui = ["win_manifest","kanata-parser/gui",

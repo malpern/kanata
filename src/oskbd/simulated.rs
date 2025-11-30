@@ -1,10 +1,81 @@
 //! Output that just prints text to stdout instead of actually doing anything OS-related.
 //! See <../../docs/simulated_output/sim_out.txt> for an example output.
 use indoc::formatdoc;
+#[cfg(feature = "simulated_output")]
+use serde::Serialize;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+
+/// Structured simulation event for JSON output.
+/// Each event has a timestamp (t) in milliseconds from simulation start.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "simulated_output", derive(Serialize))]
+#[cfg_attr(feature = "simulated_output", serde(tag = "type", rename_all = "lowercase"))]
+pub enum SimEvent {
+    /// An input key event (what the user "pressed")
+    Input {
+        t: u64,
+        action: SimKeyAction,
+        key: String,
+    },
+    /// An output key event (what Kanata would emit)
+    Output {
+        t: u64,
+        action: SimKeyAction,
+        key: String,
+    },
+    /// A layer change event
+    Layer {
+        t: u64,
+        from: String,
+        to: String,
+    },
+    /// A unicode character output
+    Unicode {
+        t: u64,
+        #[cfg_attr(feature = "simulated_output", serde(rename = "char"))]
+        character: String,
+    },
+    /// A mouse event
+    Mouse {
+        t: u64,
+        action: SimMouseAction,
+        data: String,
+    },
+}
+
+/// Key action type for simulation events
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "simulated_output", derive(Serialize))]
+#[cfg_attr(feature = "simulated_output", serde(rename_all = "lowercase"))]
+pub enum SimKeyAction {
+    Press,
+    Release,
+    Repeat,
+}
+
+/// Mouse action type for simulation events
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "simulated_output", derive(Serialize))]
+#[cfg_attr(feature = "simulated_output", serde(rename_all = "lowercase"))]
+pub enum SimMouseAction {
+    Click,
+    Release,
+    Move,
+    Scroll,
+}
+
+/// Complete simulation result for JSON output
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "simulated_output", derive(Serialize))]
+pub struct SimulationResult {
+    pub events: Vec<SimEvent>,
+    #[cfg_attr(feature = "simulated_output", serde(rename = "finalLayer"))]
+    pub final_layer: Option<String>,
+    pub duration_ms: u64,
+}
 
 pub fn concat_os_str2(a: &OsStr, b: &OsStr) -> OsString {
     let mut ret = OsString::with_capacity(a.len() + b.len()); // allocate once
@@ -314,23 +385,45 @@ use std::fmt;
 
 pub struct Outputs {
     pub events: Vec<String>,
+    /// Structured events for JSON output
+    pub sim_events: Vec<SimEvent>,
+    /// Pending ticks to be added to next event
     ticks: u64,
+    /// Total elapsed time in ms
+    total_time_ms: u64,
 }
 
 impl Outputs {
     fn new() -> Self {
         Self {
             events: vec![],
+            sim_events: vec![],
             ticks: 0,
+            total_time_ms: 0,
         }
     }
 
     fn push(&mut self, event: impl AsRef<str>) {
         if self.ticks > 0 {
             self.events.push(format!("t:{}ms", self.ticks));
+            self.total_time_ms += self.ticks;
         }
         self.events.push(event.as_ref().to_string());
         self.ticks = 0;
+    }
+
+    fn push_sim_event(&mut self, event: SimEvent) {
+        self.sim_events.push(event);
+    }
+
+    /// Get current timestamp for events
+    fn current_time(&self) -> u64 {
+        self.total_time_ms + self.ticks
+    }
+
+    /// Get total duration of simulation
+    pub fn duration_ms(&self) -> u64 {
+        self.total_time_ms + self.ticks
     }
 }
 
@@ -392,29 +485,60 @@ impl KbdOut {
     }
     pub fn press_key(&mut self, key: OsCode) -> Result<(), io::Error> {
         self.log.press_key(key);
+        let key_name = KeyCode::from(key).to_string();
+        self.outputs.push_sim_event(SimEvent::Output {
+            t: self.outputs.current_time(),
+            action: SimKeyAction::Press,
+            key: key_name,
+        });
         self.write_key(key, KeyValue::Press)
     }
     pub fn release_key(&mut self, key: OsCode) -> Result<(), io::Error> {
         self.log.release_key(key);
+        let key_name = KeyCode::from(key).to_string();
+        self.outputs.push_sim_event(SimEvent::Output {
+            t: self.outputs.current_time(),
+            action: SimKeyAction::Release,
+            key: key_name,
+        });
         self.write_key(key, KeyValue::Release)
     }
     pub fn send_unicode(&mut self, c: char) -> Result<(), io::Error> {
         self.log.send_unicode(c);
+        self.outputs.push_sim_event(SimEvent::Unicode {
+            t: self.outputs.current_time(),
+            character: c.to_string(),
+        });
         self.outputs.push(format!("outU:{c}"));
         Ok(())
     }
     pub fn click_btn(&mut self, btn: Btn) -> Result<(), io::Error> {
         self.log.click_btn(btn);
+        self.outputs.push_sim_event(SimEvent::Mouse {
+            t: self.outputs.current_time(),
+            action: SimMouseAction::Click,
+            data: format!("{btn:?}"),
+        });
         self.outputs.push(format!("out🖰:↓{btn:?}"));
         Ok(())
     }
     pub fn release_btn(&mut self, btn: Btn) -> Result<(), io::Error> {
         self.log.release_btn(btn);
+        self.outputs.push_sim_event(SimEvent::Mouse {
+            t: self.outputs.current_time(),
+            action: SimMouseAction::Release,
+            data: format!("{btn:?}"),
+        });
         self.outputs.push(format!("out🖰:↑{btn:?}"));
         Ok(())
     }
     pub fn scroll(&mut self, direction: MWheelDirection, distance: u16) -> Result<(), io::Error> {
         self.log.scroll(direction, distance);
+        self.outputs.push_sim_event(SimEvent::Mouse {
+            t: self.outputs.current_time(),
+            action: SimMouseAction::Scroll,
+            data: format!("{direction:?},{distance}"),
+        });
         self.outputs
             .push(format!("scroll:{direction:?},{distance:?}"));
         Ok(())
@@ -422,6 +546,11 @@ impl KbdOut {
     pub fn move_mouse(&mut self, mv: CalculatedMouseMove) -> Result<(), io::Error> {
         let (direction, distance) = (mv.direction, mv.distance);
         self.log.move_mouse(direction, distance);
+        self.outputs.push_sim_event(SimEvent::Mouse {
+            t: self.outputs.current_time(),
+            action: SimMouseAction::Move,
+            data: format!("{direction:?},{distance}"),
+        });
         self.outputs
             .push(format!("out🖰:move {direction:?},{distance:?}"));
         Ok(())
@@ -430,6 +559,11 @@ impl KbdOut {
         for mv in moves {
             let (direction, distance) = (&mv.direction, &mv.distance);
             self.log.move_mouse(*direction, *distance);
+            self.outputs.push_sim_event(SimEvent::Mouse {
+                t: self.outputs.current_time(),
+                action: SimMouseAction::Move,
+                data: format!("{direction:?},{distance}"),
+            });
             self.outputs
                 .push(format!("out🖰:move {direction:?},{distance:?}"));
         }
@@ -437,12 +571,67 @@ impl KbdOut {
     }
     pub fn set_mouse(&mut self, x: u16, y: u16) -> Result<(), io::Error> {
         self.log.set_mouse(x, y);
+        self.outputs.push_sim_event(SimEvent::Mouse {
+            t: self.outputs.current_time(),
+            action: SimMouseAction::Move,
+            data: format!("@{x},{y}"),
+        });
         log::info!("out🖰:@{x},{y}");
         Ok(())
     }
     pub fn tick(&mut self) {
         self.outputs.ticks += 1;
         self.log.ticks += 1;
+    }
+
+    // Methods for recording input events (for JSON output)
+
+    /// Record an input key press event (for JSON output)
+    pub fn record_input_press(&mut self, key: OsCode) {
+        let key_name = KeyCode::from(key).to_string();
+        self.outputs.push_sim_event(SimEvent::Input {
+            t: self.outputs.current_time(),
+            action: SimKeyAction::Press,
+            key: key_name,
+        });
+    }
+
+    /// Record an input key release event (for JSON output)
+    pub fn record_input_release(&mut self, key: OsCode) {
+        let key_name = KeyCode::from(key).to_string();
+        self.outputs.push_sim_event(SimEvent::Input {
+            t: self.outputs.current_time(),
+            action: SimKeyAction::Release,
+            key: key_name,
+        });
+    }
+
+    /// Record an input key repeat event (for JSON output)
+    pub fn record_input_repeat(&mut self, key: OsCode) {
+        let key_name = KeyCode::from(key).to_string();
+        self.outputs.push_sim_event(SimEvent::Input {
+            t: self.outputs.current_time(),
+            action: SimKeyAction::Repeat,
+            key: key_name,
+        });
+    }
+
+    /// Record a layer change event (for JSON output)
+    pub fn record_layer_change(&mut self, from: &str, to: &str) {
+        self.outputs.push_sim_event(SimEvent::Layer {
+            t: self.outputs.current_time(),
+            from: from.to_string(),
+            to: to.to_string(),
+        });
+    }
+
+    /// Build the simulation result for JSON output
+    pub fn build_simulation_result(&self, final_layer: Option<String>) -> SimulationResult {
+        SimulationResult {
+            events: self.outputs.sim_events.clone(),
+            final_layer,
+            duration_ms: self.outputs.duration_ms(),
+        }
     }
 }
 
