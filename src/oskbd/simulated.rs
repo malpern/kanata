@@ -77,6 +77,29 @@ pub struct SimulationResult {
     pub duration_ms: u64,
 }
 
+/// A single key mapping entry showing what outputs a single input key produces
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "simulated_output", derive(Serialize))]
+pub struct KeyMapping {
+    /// The input key that was pressed (e.g., "h", "g")
+    pub input: String,
+    /// All output keys/characters produced by this input (e.g., ["◀"] or ["‹◆", "▲"])
+    pub outputs: Vec<String>,
+    /// Whether this key is a transparent passthrough (input == output)
+    pub transparent: bool,
+}
+
+/// Key mapping result for --key-mapping mode
+/// This provides a direct input→outputs mapping without timestamp correlation
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "simulated_output", derive(Serialize))]
+pub struct KeyMappingResult {
+    /// The layer these mappings are for
+    pub layer: String,
+    /// Direct input→outputs mappings
+    pub mappings: Vec<KeyMapping>,
+}
+
 pub fn concat_os_str2(a: &OsStr, b: &OsStr) -> OsString {
     let mut ret = OsString::with_capacity(a.len() + b.len()); // allocate once
     ret.push(a);
@@ -391,6 +414,12 @@ pub struct Outputs {
     ticks: u64,
     /// Total elapsed time in ms
     total_time_ms: u64,
+    /// Current input key being processed (for key-mapping mode)
+    current_input_key: Option<String>,
+    /// Collected outputs for the current input key
+    current_outputs: Vec<String>,
+    /// Completed key mappings (input -> outputs)
+    pub key_mappings: Vec<KeyMapping>,
 }
 
 impl Outputs {
@@ -400,6 +429,9 @@ impl Outputs {
             sim_events: vec![],
             ticks: 0,
             total_time_ms: 0,
+            current_input_key: None,
+            current_outputs: vec![],
+            key_mappings: vec![],
         }
     }
 
@@ -424,6 +456,32 @@ impl Outputs {
     /// Get total duration of simulation
     pub fn duration_ms(&self) -> u64 {
         self.total_time_ms + self.ticks
+    }
+
+    /// Start tracking outputs for a new input key (for key-mapping mode)
+    pub fn start_input_key(&mut self, key: &str) {
+        // If we have a previous input key pending, finalize it first
+        self.finalize_current_mapping();
+        self.current_input_key = Some(key.to_string());
+        self.current_outputs.clear();
+    }
+
+    /// Record an output for the current input key (for key-mapping mode)
+    pub fn record_output_for_mapping(&mut self, output: &str) {
+        self.current_outputs.push(output.to_string());
+    }
+
+    /// Finalize the current input key's mapping when key is released
+    pub fn finalize_current_mapping(&mut self) {
+        if let Some(input) = self.current_input_key.take() {
+            let outputs = std::mem::take(&mut self.current_outputs);
+            let transparent = outputs.len() == 1 && outputs[0] == input;
+            self.key_mappings.push(KeyMapping {
+                input,
+                outputs,
+                transparent,
+            });
+        }
     }
 }
 
@@ -486,6 +544,8 @@ impl KbdOut {
     pub fn press_key(&mut self, key: OsCode) -> Result<(), io::Error> {
         self.log.press_key(key);
         let key_name = KeyCode::from(key).to_string();
+        // Record for key-mapping mode
+        self.outputs.record_output_for_mapping(&key_name);
         self.outputs.push_sim_event(SimEvent::Output {
             t: self.outputs.current_time(),
             action: SimKeyAction::Press,
@@ -505,9 +565,12 @@ impl KbdOut {
     }
     pub fn send_unicode(&mut self, c: char) -> Result<(), io::Error> {
         self.log.send_unicode(c);
+        let char_str = c.to_string();
+        // Record for key-mapping mode
+        self.outputs.record_output_for_mapping(&char_str);
         self.outputs.push_sim_event(SimEvent::Unicode {
             t: self.outputs.current_time(),
-            character: c.to_string(),
+            character: char_str,
         });
         self.outputs.push(format!("outU:{c}"));
         Ok(())
@@ -589,6 +652,8 @@ impl KbdOut {
     /// Record an input key press event (for JSON output)
     pub fn record_input_press(&mut self, key: OsCode) {
         let key_name = KeyCode::from(key).to_string();
+        // Start tracking outputs for this input key (for key-mapping mode)
+        self.outputs.start_input_key(&key_name);
         self.outputs.push_sim_event(SimEvent::Input {
             t: self.outputs.current_time(),
             action: SimKeyAction::Press,
@@ -599,6 +664,8 @@ impl KbdOut {
     /// Record an input key release event (for JSON output)
     pub fn record_input_release(&mut self, key: OsCode) {
         let key_name = KeyCode::from(key).to_string();
+        // Finalize the key mapping for this input (for key-mapping mode)
+        self.outputs.finalize_current_mapping();
         self.outputs.push_sim_event(SimEvent::Input {
             t: self.outputs.current_time(),
             action: SimKeyAction::Release,
@@ -631,6 +698,14 @@ impl KbdOut {
             events: self.outputs.sim_events.clone(),
             final_layer,
             duration_ms: self.outputs.duration_ms(),
+        }
+    }
+
+    /// Build the key mapping result for --key-mapping output
+    pub fn build_key_mapping_result(&self, layer: String) -> KeyMappingResult {
+        KeyMappingResult {
+            layer,
+            mappings: self.outputs.key_mappings.clone(),
         }
     }
 }

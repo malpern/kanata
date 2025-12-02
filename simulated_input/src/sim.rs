@@ -84,6 +84,18 @@ test/sim.txt in the current working directory and
     /// JSON output includes structured events with timestamps, layer changes, and actions.
     #[arg(long, verbatim_doc_comment)]
     json: bool,
+
+    /// Output key mappings as JSON showing input->outputs pairs.
+    /// This mode provides a direct mapping of what each input key produces,
+    /// making it easier to understand key remappings without parsing event timelines.
+    /// Best used with --start-layer to get mappings for a specific layer.
+    #[arg(long, verbatim_doc_comment)]
+    key_mapping: bool,
+
+    /// Start simulation in a specific layer instead of the default (base) layer.
+    /// Useful for testing key mappings in non-base layers without simulating layer-switch keys.
+    #[arg(long, verbatim_doc_comment)]
+    start_layer: Option<String>,
 }
 
 fn log_init() {
@@ -105,12 +117,14 @@ fn log_init() {
 }
 
 /// Parse CLI arguments
-fn cli_init_fsim() -> Result<(ValidatedArgs, Vec<PathBuf>, Option<String>, bool)> {
+fn cli_init_fsim() -> Result<(ValidatedArgs, Vec<PathBuf>, Option<String>, bool, bool, Option<String>)> {
     let args = Args::parse();
     let cfg_paths = args.cfg.unwrap_or_else(default_cfg);
     let sim_paths = args.sim.unwrap_or_else(default_sim);
     let sim_appendix = args.out;
     let json_output = args.json;
+    let key_mapping_output = args.key_mapping;
+    let start_layer = args.start_layer;
 
     log::info!(
         "kanata_simulated_input v{} starting",
@@ -150,6 +164,8 @@ fn cli_init_fsim() -> Result<(ValidatedArgs, Vec<PathBuf>, Option<String>, bool)
         sim_paths,
         sim_appendix,
         json_output,
+        key_mapping_output,
+        start_layer,
     ))
 }
 
@@ -205,7 +221,7 @@ fn kbd_out_log(
 }
 fn main_impl() -> Result<()> {
     log_init();
-    let (args, sim_paths, _sim_appendix, json_output) = cli_init_fsim()?;
+    let (args, sim_paths, _sim_appendix, json_output, key_mapping_output, start_layer) = cli_init_fsim()?;
     #[cfg(not(feature = "simulated_output"))]
     {
         if _sim_appendix.is_some() {
@@ -217,6 +233,13 @@ fn main_impl() -> Result<()> {
 
     for config_sim_file in &sim_paths {
         let mut k = Kanata::new(&args)?;
+
+        // Switch to start layer if specified
+        if let Some(ref layer_name) = start_layer {
+            log::info!("Switching to start layer: {}", layer_name);
+            k.change_layer(layer_name.clone());
+        }
+
         log::info!("Evaluating simulation file = {:?}", config_sim_file);
         let s = std::fs::read_to_string(config_sim_file)?;
         for l in s.lines() {
@@ -317,7 +340,16 @@ fn main_impl() -> Result<()> {
         }
 
         // Output results
-        if json_output {
+        if key_mapping_output {
+            // Get current layer name (use start_layer if specified, otherwise get from state)
+            let layer_name = start_layer.clone().unwrap_or_else(|| {
+                k.layer_info.get(k.layout.b().current_layer())
+                    .map(|info| info.name.clone())
+                    .unwrap_or_else(|| "base".to_string())
+            });
+            let result = k.kbd_out.build_key_mapping_result(layer_name);
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        } else if json_output {
             // Get final layer name
             let final_layer = k.layer_info.get(k.layout.b().current_layer())
                 .map(|info| info.name.clone());
