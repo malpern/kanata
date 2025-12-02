@@ -83,6 +83,30 @@ pub enum ServerMessage {
         column: Option<u32>,
         at: String,
     },
+    // Live event stream for overlay/debugging (MVP)
+    /// Key input event (what the user physically pressed)
+    KeyInput {
+        key: String,
+        action: LiveKeyAction,
+        /// Timestamp in milliseconds since Kanata start
+        t: u64,
+    },
+    /// Key output event (what Kanata emits after processing)
+    KeyOutput {
+        key: String,
+        action: LiveKeyAction,
+        /// Timestamp in milliseconds since Kanata start
+        t: u64,
+    },
+}
+
+/// Action type for live key events (named to avoid conflict with kanata's KeyAction)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LiveKeyAction {
+    Press,
+    Release,
+    Repeat,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

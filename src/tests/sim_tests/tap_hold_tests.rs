@@ -120,3 +120,41 @@ fn tap_hold_release_keys() {
     let result = simulate(cfg, "d:a t:50 d:z u:z t:75").to_ascii();
     assert_eq!("t:50ms dn:X t:6ms dn:Z t:1ms up:Z", result);
 }
+
+/// Test that tap-hold resolving to layer-while-held correctly activates the layer.
+/// This is the use case for KeyPath's Vim navigation mode:
+/// - spc tap = Space
+/// - spc hold (200ms) = nav layer active while held
+/// - While nav layer active, h/j/k/l = arrows
+#[test]
+fn tap_hold_layer_while_held() {
+    let result = simulate(
+        "
+        (defsrc spc h)
+        (deflayer base (tap-hold 200 200 spc (layer-while-held nav)) h)
+        (deflayer nav XX left)
+        ",
+        // Press spc, wait 201ms for hold timeout, then press h (should output Left, not H)
+        "d:spc t:201 d:h t:20 u:h t:20 u:spc t:20",
+    )
+    .to_ascii();
+    // After 200ms hold timeout, layer activates. h on nav layer = Left
+    assert_eq!("t:201ms dn:Left t:20ms up:Left", result);
+}
+
+/// Test tap-hold layer release - key on layer should no longer work after release
+#[test]
+fn tap_hold_layer_while_held_release() {
+    let result = simulate(
+        "
+        (defsrc spc h)
+        (deflayer base (tap-hold 200 200 spc (layer-while-held nav)) h)
+        (deflayer nav XX left)
+        ",
+        // Press spc, hold to activate layer, release spc, then h should output H (back on base)
+        "d:spc t:201 u:spc t:20 d:h t:20 u:h t:20",
+    )
+    .to_ascii();
+    // After spc release, we're back on base layer, h = H
+    assert_eq!("t:221ms dn:H t:20ms up:H", result);
+}

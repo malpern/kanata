@@ -30,7 +30,7 @@ use kanata_parser::cfg::list_actions::*;
 use kanata_parser::cfg::*;
 use kanata_parser::custom_action::*;
 pub use kanata_parser::keys::*;
-use kanata_tcp_protocol::ServerMessage;
+use kanata_tcp_protocol::{LiveKeyAction, ServerMessage};
 
 mod clipboard;
 use clipboard::*;
@@ -2120,6 +2120,7 @@ impl Kanata {
         let cur_layer = self.layout.bm().current_layer();
         if cur_layer != self.prev_layer {
             let new = self.layer_info[cur_layer].name.clone();
+            log::debug!("[layer] changed to '{}' (index {})", new, cur_layer);
             self.prev_layer = cur_layer;
             self.print_layer(cur_layer);
 
@@ -2276,6 +2277,27 @@ impl Kanata {
                             #[cfg(feature = "perf_logging")]
                             let start = web_time::Instant::now();
 
+                            // Broadcast KeyInput event for live overlay (skip WakeUp ticks)
+                            #[cfg(feature = "tcp_server")]
+                            {
+                                log::debug!("[KeyInput-blocking] code={:?} value={:?} tx={}", kev.code, kev.value, tx.is_some());
+                                if kev.value != KeyValue::WakeUp && kev.code != OsCode::KEY_RESERVED {
+                                    if let Some(ref tx) = tx {
+                                        // Use OsCode's Display (e.g., "SPACE") and lowercase for overlay compatibility
+                                        let key_name = kev.code.to_string().to_lowercase();
+                                        log::info!("[KeyInput] Sending key={}", key_name);
+                                        let action = match kev.value {
+                                            KeyValue::Press => LiveKeyAction::Press,
+                                            KeyValue::Release => LiveKeyAction::Release,
+                                            KeyValue::Repeat => LiveKeyAction::Repeat,
+                                            _ => LiveKeyAction::Press, // Tap treated as press
+                                        };
+                                        let t = k.start_time.elapsed().as_millis() as u64;
+                                        let _ = tx.try_send(ServerMessage::KeyInput { key: key_name, action, t });
+                                    }
+                                }
+                            }
+
                             if let Err(e) = k.handle_input_event(&kev) {
                                 break e;
                             }
@@ -2335,6 +2357,27 @@ impl Kanata {
 
                             #[cfg(feature = "perf_logging")]
                             let start = web_time::Instant::now();
+
+                            // Broadcast KeyInput event for live overlay (skip WakeUp ticks)
+                            #[cfg(feature = "tcp_server")]
+                            {
+                                log::debug!("[KeyInput-nonblocking] code={:?} value={:?} tx={}", kev.code, kev.value, tx.is_some());
+                                if kev.value != KeyValue::WakeUp && kev.code != OsCode::KEY_RESERVED {
+                                    if let Some(ref tx) = tx {
+                                        // Use OsCode's Display (e.g., "SPACE") and lowercase for overlay compatibility
+                                        let key_name = kev.code.to_string().to_lowercase();
+                                        log::info!("[KeyInput] Sending key={}", key_name);
+                                        let action = match kev.value {
+                                            KeyValue::Press => LiveKeyAction::Press,
+                                            KeyValue::Release => LiveKeyAction::Release,
+                                            KeyValue::Repeat => LiveKeyAction::Repeat,
+                                            _ => LiveKeyAction::Press, // Tap treated as press
+                                        };
+                                        let t = k.start_time.elapsed().as_millis() as u64;
+                                        let _ = tx.try_send(ServerMessage::KeyInput { key: key_name, action, t });
+                                    }
+                                }
+                            }
 
                             if let Err(e) = k.handle_input_event(&kev) {
                                 break e;

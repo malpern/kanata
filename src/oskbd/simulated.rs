@@ -402,6 +402,170 @@ use kanata_parser::custom_action::*;
 
 use std::io;
 
+#[derive(Debug, Default, Clone)]
+struct PendingRelease {
+    key: String,
+    ticks_since_release: u64,
+    had_output: bool,
+}
+
+/// Helper that keeps key→output attribution contained to key-mapping mode.
+///
+/// The simulator can emit delayed outputs (e.g., tap-hold resolution) after a
+/// key has been released. Those outputs often show up just as the NEXT key is
+/// pressed, which previously caused them to be attributed to the wrong key.
+///
+/// Strategy:
+/// - Keep recently released keys in a small `pending_releases` list.
+/// - If an output arrives within one tick of a pending release, attribute it to
+///   that pending key (preferred) instead of the newest pressed key.
+/// - After a short grace window or once an output is seen, finalize the pending
+///   key so later outputs can't bleed further.
+///
+/// This keeps heuristics local, avoids expanding `Outputs` with per-field flags,
+/// and matches the simulator timeline where deferred tap-hold outputs are
+/// flushed immediately when processing the next input.
+#[derive(Debug, Default, Clone)]
+struct KeyMappingCollector {
+    key_outputs: std::collections::HashMap<String, Vec<String>>,
+    key_press_order: Vec<String>,
+    pending_releases: Vec<PendingRelease>,
+    key_mappings: Vec<KeyMapping>,
+}
+
+impl KeyMappingCollector {
+    fn start_input_key(&mut self, key: &str) {
+        let key_str = key.to_string();
+        log::debug!(
+            "key-mapping: start_input_key: {} (pending_releases={})",
+            key_str,
+            self.pending_releases.len()
+        );
+        self.key_outputs.entry(key_str.clone()).or_insert_with(Vec::new);
+        self.key_press_order.push(key_str);
+    }
+
+    fn record_output(&mut self, output: &str) {
+        // 1) Prefer attributing to the most recent released key if we're still
+        //    within the first tick after release (captures deferred tap outputs).
+        if let Some(pending) = self
+            .pending_releases
+            .iter_mut()
+            .rev()
+            .find(|p| p.ticks_since_release <= 1)
+        {
+            log::debug!(
+                "key-mapping: attributing deferred output '{}' to released key {}",
+                output,
+                pending.key
+            );
+            self.key_outputs
+                .entry(pending.key.clone())
+                .or_insert_with(Vec::new)
+                .push(output.to_string());
+            pending.had_output = true;
+            self.flush_pending_ready(false);
+            return;
+        }
+
+        // 2) Fall back to the most recently pressed (still-held) key.
+        if let Some(current_key) = self.key_press_order.last() {
+            if let Some(outputs) = self.key_outputs.get_mut(current_key) {
+                outputs.push(output.to_string());
+                log::debug!(
+                    "key-mapping: recorded output '{}' for current key {}",
+                    output,
+                    current_key
+                );
+            }
+        } else {
+            log::debug!(
+                "key-mapping: discarded output '{}' (no active or pending keys)",
+                output
+            );
+        }
+    }
+
+    fn mark_key_released(&mut self, key: &str) {
+        let key_str = key.to_string();
+        log::debug!(
+            "key-mapping: mark_key_released: {} (press_order before={:?})",
+            key_str, self.key_press_order
+        );
+        self.key_press_order.retain(|k| k != &key_str);
+        self.pending_releases.push(PendingRelease {
+            key: key_str,
+            ticks_since_release: 0,
+            had_output: false,
+        });
+    }
+
+    fn tick(&mut self) {
+        for pending in &mut self.pending_releases {
+            pending.ticks_since_release = pending.ticks_since_release.saturating_add(1);
+        }
+        self.flush_pending_ready(false);
+    }
+
+    fn flush_pending_ready(&mut self, force: bool) {
+        let mut idx = 0;
+        while idx < self.pending_releases.len() {
+            let ready = {
+                let p = &self.pending_releases[idx];
+                force || p.had_output || p.ticks_since_release > 1
+            };
+
+            if ready {
+                let pending = self.pending_releases.remove(idx);
+                self.finalize_key(pending.key);
+            } else {
+                idx += 1;
+            }
+        }
+    }
+
+    fn finalize_key(&mut self, key: String) {
+        if let Some(outputs) = self.key_outputs.remove(&key) {
+            log::debug!("key-mapping: finalizing {} with outputs={:?}", key, outputs);
+            let transparent = outputs.len() == 1 && outputs[0] == key;
+            self.key_mappings.push(KeyMapping {
+                input: key,
+                outputs,
+                transparent,
+            });
+        }
+    }
+
+    fn finalize_all(&mut self) {
+        // Finalize anything pending or still held.
+        self.flush_pending_ready(true);
+        let remaining_keys: Vec<String> = self.key_press_order.drain(..).collect();
+        for key in remaining_keys {
+            self.finalize_key(key);
+        }
+        // Finalize any keys that never transitioned through pending (e.g.,
+        // synthesized scenarios). This also clears the map to avoid leaks if
+        // build_key_mapping_result is called multiple times.
+        let remaining: Vec<(String, Vec<String>)> = self.key_outputs.drain().collect();
+        for (key, outputs) in remaining {
+            let transparent = outputs.len() == 1 && outputs[0] == key;
+            self.key_mappings.push(KeyMapping {
+                input: key,
+                outputs,
+                transparent,
+            });
+        }
+    }
+
+    fn build_result(&mut self, layer: String) -> KeyMappingResult {
+        self.finalize_all();
+        KeyMappingResult {
+            layer,
+            mappings: self.key_mappings.clone(),
+        }
+    }
+}
+
 use kanata_keyberon::key_code::KeyCode;
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 use std::fmt;
@@ -414,12 +578,8 @@ pub struct Outputs {
     ticks: u64,
     /// Total elapsed time in ms
     total_time_ms: u64,
-    /// Current input key being processed (for key-mapping mode)
-    current_input_key: Option<String>,
-    /// Collected outputs for the current input key
-    current_outputs: Vec<String>,
-    /// Completed key mappings (input -> outputs)
-    pub key_mappings: Vec<KeyMapping>,
+    /// Collector that isolates key-mapping attribution heuristics
+    key_mapping: KeyMappingCollector,
 }
 
 impl Outputs {
@@ -429,9 +589,7 @@ impl Outputs {
             sim_events: vec![],
             ticks: 0,
             total_time_ms: 0,
-            current_input_key: None,
-            current_outputs: vec![],
-            key_mappings: vec![],
+            key_mapping: KeyMappingCollector::default(),
         }
     }
 
@@ -459,29 +617,33 @@ impl Outputs {
     }
 
     /// Start tracking outputs for a new input key (for key-mapping mode)
+    /// This marks the key as "being processed" - outputs will be attributed to it
+    /// until end_input_processing is called.
     pub fn start_input_key(&mut self, key: &str) {
-        // If we have a previous input key pending, finalize it first
-        self.finalize_current_mapping();
-        self.current_input_key = Some(key.to_string());
-        self.current_outputs.clear();
+        self.key_mapping.start_input_key(key);
     }
 
-    /// Record an output for the current input key (for key-mapping mode)
+    /// End input processing mode
+    /// This marks the end of handle_input_event processing. Any outputs emitted after this
+    /// (e.g., during tick_ms) are from delayed tap-hold resolution, not the current key.
+    pub fn end_input_processing(&mut self) {
+        // Keeping for symmetry; attribution is handled in KeyMappingCollector.
+        log::trace!("key-mapping: end_input_processing");
+    }
+
+    /// Record an output for key-mapping mode.
+    ///
+    /// Outputs can arrive after a key is released (e.g., tap-hold resolution). We keep a short
+    /// pending window (one tick) for released keys; any outputs arriving in that window are
+    /// attributed to the released key instead of the next pressed key. Otherwise outputs go to the
+    /// most recent still-held key.
     pub fn record_output_for_mapping(&mut self, output: &str) {
-        self.current_outputs.push(output.to_string());
+        self.key_mapping.record_output(output);
     }
 
-    /// Finalize the current input key's mapping when key is released
-    pub fn finalize_current_mapping(&mut self) {
-        if let Some(input) = self.current_input_key.take() {
-            let outputs = std::mem::take(&mut self.current_outputs);
-            let transparent = outputs.len() == 1 && outputs[0] == input;
-            self.key_mappings.push(KeyMapping {
-                input,
-                outputs,
-                transparent,
-            });
-        }
+    /// Finalize the input key's mapping when key is released
+    pub fn finalize_key_mapping(&mut self, key: &str) {
+        self.key_mapping.mark_key_released(key);
     }
 }
 
@@ -645,6 +807,7 @@ impl KbdOut {
     pub fn tick(&mut self) {
         self.outputs.ticks += 1;
         self.log.ticks += 1;
+        self.outputs.key_mapping.tick();
     }
 
     // Methods for recording input events (for JSON output)
@@ -665,7 +828,7 @@ impl KbdOut {
     pub fn record_input_release(&mut self, key: OsCode) {
         let key_name = KeyCode::from(key).to_string();
         // Finalize the key mapping for this input (for key-mapping mode)
-        self.outputs.finalize_current_mapping();
+        self.outputs.finalize_key_mapping(&key_name);
         self.outputs.push_sim_event(SimEvent::Input {
             t: self.outputs.current_time(),
             action: SimKeyAction::Release,
@@ -681,6 +844,12 @@ impl KbdOut {
             action: SimKeyAction::Repeat,
             key: key_name,
         });
+    }
+
+    /// End input processing mode (for key-mapping mode)
+    /// Call this after handle_input_event to stop attributing outputs to the current key.
+    pub fn end_input_processing(&mut self) {
+        self.outputs.end_input_processing();
     }
 
     /// Record a layer change event (for JSON output)
@@ -702,11 +871,54 @@ impl KbdOut {
     }
 
     /// Build the key mapping result for --key-mapping output
-    pub fn build_key_mapping_result(&self, layer: String) -> KeyMappingResult {
-        KeyMappingResult {
-            layer,
-            mappings: self.outputs.key_mappings.clone(),
-        }
+    pub fn build_key_mapping_result(&mut self, layer: String) -> KeyMappingResult {
+        self.outputs.key_mapping.build_result(layer)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mapping_for<'a>(result: &'a KeyMappingResult, key: &str) -> &'a KeyMapping {
+        result
+            .mappings
+            .iter()
+            .find(|m| m.input == key)
+            .expect("mapping not found")
+    }
+
+    #[test]
+    fn deferred_output_stays_with_released_key() {
+        let mut km = KeyMappingCollector::default();
+
+        // Space tap-hold: press -> release quickly (no immediate output)
+        km.start_input_key("spc");
+        km.mark_key_released("spc");
+
+        // Next key is pressed; deferred space output arrives here.
+        km.start_input_key("caps");
+        km.record_output("␠");
+
+        // Caps produces no output in this scenario.
+        km.mark_key_released("caps");
+
+        let result = km.build_result("base".into());
+
+        assert_eq!(mapping_for(&result, "spc").outputs, vec!["␠"]);
+        assert!(mapping_for(&result, "caps").outputs.is_empty());
+    }
+
+    #[test]
+    fn immediate_output_stays_with_current_key() {
+        let mut km = KeyMappingCollector::default();
+
+        km.start_input_key("a");
+        km.record_output("A");
+        km.mark_key_released("a");
+
+        let result = km.build_result("base".into());
+        assert_eq!(mapping_for(&result, "a").outputs, vec!["A"]);
     }
 }
 

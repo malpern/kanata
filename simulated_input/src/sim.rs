@@ -260,6 +260,7 @@ fn main_impl() -> Result<()> {
                                 code: key_code,
                                 value: KeyValue::Press,
                             })?;
+                            k.kbd_out.end_input_processing();
                         }
                         "release" | "↑" | "u" | "up" => {
                             let key_code =
@@ -270,6 +271,7 @@ fn main_impl() -> Result<()> {
                                 code: key_code,
                                 value: KeyValue::Release,
                             })?;
+                            k.kbd_out.end_input_processing();
                         }
                         "repeat" | "⟳" | "r" => {
                             let key_code =
@@ -280,6 +282,7 @@ fn main_impl() -> Result<()> {
                                 code: key_code,
                                 value: KeyValue::Repeat,
                             })?;
+                            k.kbd_out.end_input_processing();
                         }
                         _ => bail!("invalid pair prefix: {kind}"),
                     },
@@ -306,6 +309,7 @@ fn main_impl() -> Result<()> {
                                     code: key_code,
                                     value: KeyValue::Press,
                                 })?;
+                                k.kbd_out.end_input_processing();
                             }
                             "↑" => {
                                 let key_code = str_to_oscode(val)
@@ -316,6 +320,7 @@ fn main_impl() -> Result<()> {
                                     code: key_code,
                                     value: KeyValue::Release,
                                 })?;
+                                k.kbd_out.end_input_processing();
                             }
                             "⟳" => {
                                 let key_code = str_to_oscode(val)
@@ -331,6 +336,7 @@ fn main_impl() -> Result<()> {
                                     code: key_code,
                                     value: KeyValue::Repeat,
                                 })?;
+                                k.kbd_out.end_input_processing();
                             }
                             _ => bail!("invalid pair: {l}"),
                         }
