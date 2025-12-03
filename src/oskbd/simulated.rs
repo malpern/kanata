@@ -810,11 +810,135 @@ impl KbdOut {
         self.outputs.key_mapping.tick();
     }
 
+    /// Convert a key code to a canonical, ASCII-only kanata key name suitable for
+    /// programmatic parsing (JSON output, tests, downstream tooling). This avoids
+    /// the glyph-heavy Display impl that is meant for human-friendly timelines.
+    fn canonical_key_name(kc: KeyCode) -> String {
+        match kc {
+            // Letters and digits
+            KeyCode::Kb1 => "1".into(),
+            KeyCode::Kb2 => "2".into(),
+            KeyCode::Kb3 => "3".into(),
+            KeyCode::Kb4 => "4".into(),
+            KeyCode::Kb5 => "5".into(),
+            KeyCode::Kb6 => "6".into(),
+            KeyCode::Kb7 => "7".into(),
+            KeyCode::Kb8 => "8".into(),
+            KeyCode::Kb9 => "9".into(),
+            KeyCode::Kb0 => "0".into(),
+            KeyCode::A => "a".into(),
+            KeyCode::B => "b".into(),
+            KeyCode::C => "c".into(),
+            KeyCode::D => "d".into(),
+            KeyCode::E => "e".into(),
+            KeyCode::F => "f".into(),
+            KeyCode::G => "g".into(),
+            KeyCode::H => "h".into(),
+            KeyCode::I => "i".into(),
+            KeyCode::J => "j".into(),
+            KeyCode::K => "k".into(),
+            KeyCode::L => "l".into(),
+            KeyCode::M => "m".into(),
+            KeyCode::N => "n".into(),
+            KeyCode::O => "o".into(),
+            KeyCode::P => "p".into(),
+            KeyCode::Q => "q".into(),
+            KeyCode::R => "r".into(),
+            KeyCode::S => "s".into(),
+            KeyCode::T => "t".into(),
+            KeyCode::U => "u".into(),
+            KeyCode::V => "v".into(),
+            KeyCode::W => "w".into(),
+            KeyCode::X => "x".into(),
+            KeyCode::Y => "y".into(),
+            KeyCode::Z => "z".into(),
+
+            // Common symbols / punctuation (use the short names accepted by str_to_oscode)
+            KeyCode::Minus => "min".into(),
+            KeyCode::Equal => "eql".into(),
+            KeyCode::Grave => "grv".into(),
+            KeyCode::LBracket => "lbrc".into(),
+            KeyCode::RBracket => "rbrc".into(),
+            KeyCode::Bslash => "bksl".into(),
+            KeyCode::NonUsBslash => "nubs".into(),
+            KeyCode::NonUsHash => "nu#".into(),
+            KeyCode::SColon => "scln".into(),
+            KeyCode::Quote => "apos".into(),
+            KeyCode::Comma => "comm".into(),
+            KeyCode::Dot => "dot".into(),
+            KeyCode::Slash => "slash".into(),
+
+            // Navigation / editing
+            KeyCode::BSpace => "bspc".into(),
+            KeyCode::Tab => "tab".into(),
+            KeyCode::Enter => "ret".into(),
+            KeyCode::Escape => "esc".into(),
+            KeyCode::Space => "spc".into(),
+            KeyCode::CapsLock => "caps".into(),
+            KeyCode::Insert => "ins".into(),
+            KeyCode::Delete => "del".into(),
+            KeyCode::Home => "home".into(),
+            KeyCode::End => "end".into(),
+            KeyCode::PgUp => "pgup".into(),
+            KeyCode::PgDown => "pgdn".into(),
+            KeyCode::Up => "up".into(),
+            KeyCode::Down => "down".into(),
+            KeyCode::Left => "left".into(),
+            KeyCode::Right => "right".into(),
+
+            // Modifiers (left/right preserved)
+            KeyCode::LCtrl => "lctl".into(),
+            KeyCode::RCtrl => "rctl".into(),
+            KeyCode::LShift => "lsft".into(),
+            KeyCode::RShift => "rsft".into(),
+            KeyCode::LAlt => "lalt".into(),
+            KeyCode::RAlt => "ralt".into(),
+            KeyCode::LGui => "lmet".into(),
+            KeyCode::RGui => "rmet".into(),
+
+            // Function keys
+            KeyCode::F1 => "f1".into(),
+            KeyCode::F2 => "f2".into(),
+            KeyCode::F3 => "f3".into(),
+            KeyCode::F4 => "f4".into(),
+            KeyCode::F5 => "f5".into(),
+            KeyCode::F6 => "f6".into(),
+            KeyCode::F7 => "f7".into(),
+            KeyCode::F8 => "f8".into(),
+            KeyCode::F9 => "f9".into(),
+            KeyCode::F10 => "f10".into(),
+            KeyCode::F11 => "f11".into(),
+            KeyCode::F12 => "f12".into(),
+
+            // Numpad (use kp* names)
+            KeyCode::KpSlash => "kp/".into(),
+            KeyCode::KpAsterisk => "kp*".into(),
+            KeyCode::KpMinus => "kp-".into(),
+            KeyCode::KpPlus => "kp+".into(),
+            KeyCode::KpEnter => "kpenter".into(),
+            KeyCode::Kp0 => "kp0".into(),
+            KeyCode::Kp1 => "kp1".into(),
+            KeyCode::Kp2 => "kp2".into(),
+            KeyCode::Kp3 => "kp3".into(),
+            KeyCode::Kp4 => "kp4".into(),
+            KeyCode::Kp5 => "kp5".into(),
+            KeyCode::Kp6 => "kp6".into(),
+            KeyCode::Kp7 => "kp7".into(),
+            KeyCode::Kp8 => "kp8".into(),
+            KeyCode::Kp9 => "kp9".into(),
+            KeyCode::KpDot => "kp.".into(),
+            KeyCode::KpEqual => "kp=".into(),
+
+            // Media / misc fallback to Debug but lowercase
+            _ => format!("{:?}", kc).to_lowercase(),
+        }
+    }
+
     // Methods for recording input events (for JSON output)
 
     /// Record an input key press event (for JSON output)
     pub fn record_input_press(&mut self, key: OsCode) {
-        let key_name = KeyCode::from(key).to_string();
+        let key_name = Self::canonical_key_name(KeyCode::from(key));
         // Start tracking outputs for this input key (for key-mapping mode)
         self.outputs.start_input_key(&key_name);
         self.outputs.push_sim_event(SimEvent::Input {
@@ -826,7 +950,7 @@ impl KbdOut {
 
     /// Record an input key release event (for JSON output)
     pub fn record_input_release(&mut self, key: OsCode) {
-        let key_name = KeyCode::from(key).to_string();
+        let key_name = Self::canonical_key_name(KeyCode::from(key));
         // Finalize the key mapping for this input (for key-mapping mode)
         self.outputs.finalize_key_mapping(&key_name);
         self.outputs.push_sim_event(SimEvent::Input {
@@ -838,7 +962,7 @@ impl KbdOut {
 
     /// Record an input key repeat event (for JSON output)
     pub fn record_input_repeat(&mut self, key: OsCode) {
-        let key_name = KeyCode::from(key).to_string();
+        let key_name = Self::canonical_key_name(KeyCode::from(key));
         self.outputs.push_sim_event(SimEvent::Input {
             t: self.outputs.current_time(),
             action: SimKeyAction::Repeat,
@@ -919,6 +1043,22 @@ mod tests {
 
         let result = km.build_result("base".into());
         assert_eq!(mapping_for(&result, "a").outputs, vec!["A"]);
+    }
+
+    #[test]
+    fn canonical_key_names_are_ascii_and_kanata_style() {
+        assert_eq!(KbdOut::canonical_key_name(KeyCode::CapsLock), "caps");
+        assert_eq!(KbdOut::canonical_key_name(KeyCode::Escape), "esc");
+        assert_eq!(KbdOut::canonical_key_name(KeyCode::Left), "left");
+        assert_eq!(KbdOut::canonical_key_name(KeyCode::LCtrl), "lctl");
+        assert_eq!(KbdOut::canonical_key_name(KeyCode::LGui), "lmet");
+        assert_eq!(KbdOut::canonical_key_name(KeyCode::Minus), "min");
+        assert_eq!(KbdOut::canonical_key_name(KeyCode::Equal), "eql");
+        assert_eq!(KbdOut::canonical_key_name(KeyCode::Enter), "ret");
+        assert_eq!(KbdOut::canonical_key_name(KeyCode::Space), "spc");
+        assert!(KbdOut::canonical_key_name(KeyCode::CapsLock)
+            .chars()
+            .all(|c| c.is_ascii()));
     }
 }
 
