@@ -1186,7 +1186,7 @@ impl Kanata {
                 // borrow-checked scope and can't easily be extracted. Consumers should look up
                 // the hold action from the config's layer key mapping using the key name.
                 let action = String::new();
-                log::debug!("HoldActivated: key={} coord={:?}", key_name, hold_info.coord);
+                log::info!("HoldActivated: key={} coord={:?} t={}", key_name, hold_info.coord, t);
                 let _ = tx.try_send(ServerMessage::HoldActivated { key: key_name, action, t });
             }
         }
