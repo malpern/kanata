@@ -98,6 +98,15 @@ pub enum ServerMessage {
         /// Timestamp in milliseconds since Kanata start
         t: u64,
     },
+    /// Sent when a tap-hold key transitions to hold state
+    HoldActivated {
+        /// Physical key name (e.g., "caps")
+        key: String,
+        /// Hold action description (e.g., "lctl+lmet+lalt+lsft")
+        action: String,
+        /// Timestamp in milliseconds since Kanata start
+        t: u64,
+    },
 }
 
 /// Action type for live key events (named to avoid conflict with kanata's KeyAction)

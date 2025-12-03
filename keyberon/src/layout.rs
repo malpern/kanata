@@ -117,6 +117,17 @@ where
     rpt_multikey_key_buffer: MultiKeyBuffer<'a, T>,
     trans_resolution_behavior_v2: bool,
     delegate_to_first_layer: bool,
+    /// Tracks when a tap-hold key transitions to hold state.
+    /// Contains (coord, hold_action) that was just activated.
+    /// Cleared after being read via `take_hold_activated()`.
+    pub hold_activated: Option<HoldActivatedInfo>,
+}
+
+/// Information about a tap-hold key that just transitioned to hold state.
+#[derive(Debug, Clone)]
+pub struct HoldActivatedInfo {
+    /// The key coordinate (row, column)
+    pub coord: KCoord,
 }
 
 pub struct History<T> {
@@ -1127,6 +1138,7 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
             trans_resolution_behavior_v2: true,
             delegate_to_first_layer: false,
             chords_v2: None,
+            hold_activated: None,
         }
     }
     pub fn new_with_trans_action_settings(
@@ -1150,6 +1162,13 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
             .filter_map(State::keycode)
             .filter(move |kc| !keys_to_suppress_for_one_cycle.contains(kc))
     }
+
+    /// Takes the hold activation info if one occurred this tick.
+    /// Returns None if no hold was activated, or if it was already taken.
+    pub fn take_hold_activated(&mut self) -> Option<HoldActivatedInfo> {
+        self.hold_activated.take()
+    }
+
     fn waiting_into_hold(&mut self, idx: i8) -> CustomEvent<'a, T> {
         let waiting = if idx < 0 {
             self.waiting.as_ref()
@@ -1176,6 +1195,8 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
             // the rapidity of the release can cause issues. See pause_input_processing_delay
             // comments for more detail.
             self.oneshot.pause_input_processing_ticks = self.oneshot.pause_input_processing_delay;
+            // Track that hold was activated for this key (for TCP notification)
+            self.hold_activated = Some(HoldActivatedInfo { coord });
             self.do_action(hold, coord, delay, false, &mut layer_stack.into_iter())
         } else {
             CustomEvent::NoEvent
@@ -1275,6 +1296,7 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
                 WaitingConfig::HoldTap(..) | WaitingConfig::Chord(_) => w.delay + w.ticks,
                 WaitingConfig::TapDance(_) => 0,
             };
+            let is_hold_tap = matches!(w.config, WaitingConfig::HoldTap(..));
             let layer_stack = w.layer_stack.clone();
             if idx < 0 {
                 self.waiting = None;
@@ -1283,6 +1305,10 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
             }
             if coord == self.last_press_tracker.coord {
                 self.last_press_tracker.tap_hold_timeout = 0;
+            }
+            // If this timeout corresponds to a HoldTap, treat it as a hold activation for telemetry.
+            if is_hold_tap {
+                self.hold_activated = Some(HoldActivatedInfo { coord });
             }
             self.do_action(
                 timeout_action,
@@ -2764,6 +2790,36 @@ mod test {
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
         assert_keys(&[], layout.keycodes());
+    }
+
+    #[test]
+    fn tap_hold_sets_hold_activated_flag_on_timeout() {
+        static LAYERS: Layers<1, 1> = &[[[
+            HoldTap(&HoldTapAction {
+                on_press_reset_timeout_to: None,
+                timeout: 5,
+                hold: k(LAlt),
+                timeout_action: k(LAlt),
+                tap: k(Space),
+                config: HoldTapConfig::Default,
+                tap_hold_interval: 0,
+            }),
+        ]]];
+        let mut layout = Layout::new(LAYERS);
+
+        layout.event(Press(0, 0));
+        // Run ticks until timeout triggers hold path
+        for _ in 0..6 {
+            let _ = layout.tick();
+        }
+
+        // Hold action should be active
+        assert_keys(&[LAlt], layout.keycodes());
+
+        // HoldActivated flag should be set once
+        let info = layout.take_hold_activated().expect("expected hold activation");
+        assert_eq!(info.coord, (0, 0));
+        assert!(layout.take_hold_activated().is_none());
     }
 
     #[test]

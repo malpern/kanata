@@ -416,6 +416,8 @@ impl TcpServer {
                                                     "reload".to_string(),
                                                     "status".to_string(),
                                                     "ready".to_string(),
+                                                    // Overlay/telemetry capabilities
+                                                    "hold_activated".to_string(),
                                                 ];
                                                 let msg = ServerMessage::HelloOk {
                                                     version,

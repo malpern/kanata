@@ -1173,6 +1173,24 @@ impl Kanata {
     fn handle_keystate_changes(&mut self, _tx: &Option<Sender<ServerMessage>>) -> Result<bool> {
         let layout = self.layout.bm();
         let custom_event = layout.tick();
+
+        // Check for tap-hold transitioning to hold state and broadcast via TCP
+        #[cfg(feature = "tcp_server")]
+        if let Some(hold_info) = layout.take_hold_activated() {
+            if let Some(tx) = _tx {
+                // Convert coord to key name: coord is (row, col) where col is OsCode value for row 0
+                let osc = OsCode::from(hold_info.coord.1);
+                let key_name = osc.to_string().to_lowercase();
+                let t = self.start_time.elapsed().as_millis() as u64;
+                // Note: action string is empty for now - the action info lives in keyberon's
+                // borrow-checked scope and can't easily be extracted. Consumers should look up
+                // the hold action from the config's layer key mapping using the key name.
+                let action = String::new();
+                log::debug!("HoldActivated: key={} coord={:?}", key_name, hold_info.coord);
+                let _ = tx.try_send(ServerMessage::HoldActivated { key: key_name, action, t });
+            }
+        }
+
         let mut live_reload_requested = false;
         let cur_keys = &mut self.cur_keys;
         cur_keys.extend(layout.keycodes());
