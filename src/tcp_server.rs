@@ -318,8 +318,6 @@ impl TcpServer {
                                             ClientMessage::ActOnFakeKey {
                                                 name,
                                                 action,
-                                                request_id,
-                                                ..
                                             } => {
                                                 let mut k = kanata.lock();
                                                 let index = match k.virtual_keys.get(&name) {
@@ -330,7 +328,7 @@ impl TcpServer {
                                                                 msg: format!(
                                                                 "unknown virtual/fake key: {name}"
                                                             ),
-                                                                request_id,
+                                                                request_id: None,
                                                             }
                                                             .as_bytes(),
                                                         ) {
@@ -483,54 +481,6 @@ impl TcpServer {
                                                     // Flush to ensure immediate delivery
                                                     let _ = stream.flush();
                                                 }
-                                            }
-
-                                            // Validate config (preflight)
-                                            ClientMessage::Validate {
-                                                config, request_id, ..
-                                            } => {
-                                                // Default: strict mode behavior; for now unused
-                                                // Try parsing using kanata_parser
-                                                let (warnings, errors) =
-                                                    match kanata_parser::cfg::new_from_str(
-                                                        &config,
-                                                        HashMap::default(),
-                                                    ) {
-                                                        Ok(_) => (Vec::new(), Vec::new()),
-                                                        Err(e) => {
-                                                            let item = ValidationItem {
-                                                                message: format!("{e}"),
-                                                                line: None,
-                                                                column: None,
-                                                                code: Some(
-                                                                    "CONFIG_PARSE".to_string(),
-                                                                ),
-                                                            };
-                                                            (Vec::new(), vec![item])
-                                                        }
-                                                    };
-
-                                                // Send status then details
-                                                if !send_response(
-                                                    &mut stream,
-                                                    ServerResponse::Ok,
-                                                    &connections,
-                                                    &addr,
-                                                ) {
-                                                    break;
-                                                }
-                                                let msg = ServerMessage::ValidationResult {
-                                                    request_id,
-                                                    warnings,
-                                                    errors,
-                                                };
-                                                let _ = write_with_disconnect_handling(
-                                                    &mut stream,
-                                                    &msg.as_bytes(),
-                                                    &addr,
-                                                    &connections,
-                                                    "Error writing ValidationResult response",
-                                                );
                                             }
 
                                             // Handle reload commands with unified response protocol
@@ -699,19 +649,6 @@ impl TcpServer {
                                                     &addr,
                                                 ) {
                                                     break;
-                                                }
-
-                                                // If there was an immediate error, optionally send structured detail
-                                                if !was_ok {
-                                                    let detail = ServerMessage::ErrorDetail {
-                                                        code: "RELOAD_FAILED".to_string(),
-                                                        message: "Reload request failed"
-                                                            .to_string(),
-                                                        line: None,
-                                                        column: None,
-                                                        request_id,
-                                                    };
-                                                    let _ = stream.write_all(&detail.as_bytes());
                                                 }
 
                                                 // If wait is requested, check readiness and send ReloadResult
