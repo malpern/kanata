@@ -67,6 +67,7 @@ arboard = "3.4"
 karabiner-driverkit = "0.2.0"
 objc = "0.2.7"
 core-graphics = "0.24.0"
+core-foundation = "0.10"
 open = { version = "5", optional = true }
 libc = "0.2"
 os_pipe = "1.2.1"

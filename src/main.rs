@@ -29,6 +29,15 @@ mod cli {
             std::process::exit(0);
         }
 
+        #[cfg(all(target_os = "macos", not(feature = "gui")))]
+        if args.permission_probe {
+            main_lib::input_monitoring_probe::run()?;
+            println!(
+                "Input Monitoring probe finished. If you allowed the prompt, restart KeyPath to apply."
+            );
+            std::process::exit(0);
+        }
+
         #[cfg(all(any(target_os = "linux", target_os = "android"), not(feature = "gui")))]
         if args.list {
             main_lib::list_devices_linux();

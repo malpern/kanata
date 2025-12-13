@@ -4,6 +4,48 @@ pub(crate) mod args;
 pub(crate) mod win_gui;
 
 #[cfg(all(target_os = "macos", not(feature = "gui")))]
+pub(crate) mod input_monitoring_probe {
+    use anyhow::{Result, anyhow};
+    use core_foundation::runloop::{CFRunLoop, kCFRunLoopDefaultMode};
+    use core_graphics::event::{
+        CGEvent, CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement,
+        CGEventType,
+    };
+    use std::time::Duration;
+
+    /// Request Input Monitoring by creating a passive HID event tap in the user session.
+    /// Uses the same binary path as the daemon, so the TCC grant applies to runtime.
+    pub(crate) fn run() -> Result<()> {
+        // Use an active HID tap (not listen-only) to force macOS to present the Input Monitoring prompt.
+        let tap = CGEventTap::new(
+            CGEventTapLocation::HID,
+            CGEventTapPlacement::HeadInsertEventTap,
+            CGEventTapOptions::Default,
+            vec![CGEventType::KeyDown, CGEventType::KeyUp],
+            |_, _, ev: &CGEvent| Some(ev.clone()),
+        )
+        .map_err(|_| {
+            anyhow!(
+                "Input Monitoring probe could not create an event tap. macOS should have shown the permission prompt; if it did not, check MDM or add the binary manually in Input Monitoring."
+            )
+        })?;
+
+        unsafe {
+            let current = CFRunLoop::get_current();
+            let source = tap.mach_port.create_runloop_source(0).map_err(|_| {
+                anyhow!("Failed to create runloop source for input-monitoring probe")
+            })?;
+            current.add_source(&source, kCFRunLoopDefaultMode);
+            tap.enable();
+            // Give the system time to surface the prompt and accept a click.
+            CFRunLoop::run_in_mode(kCFRunLoopDefaultMode, Duration::from_secs(10), false);
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(all(target_os = "macos", not(feature = "gui")))]
 pub(crate) fn list_devices_macos() {
     use karabiner_driverkit::fetch_devices;
 

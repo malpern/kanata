@@ -87,6 +87,12 @@ kanata.kbd in the current working directory and
     #[arg(short, long, verbatim_doc_comment)]
     pub nodelay: bool,
 
+    /// macOS: Run a short Input Monitoring permission probe and exit.
+    /// This runs the kanata binary in user context to trigger the TCC prompt without touching the driver.
+    #[cfg(target_os = "macos")]
+    #[arg(long, verbatim_doc_comment, hide = true)]
+    pub permission_probe: bool,
+
     /// Milliseconds to wait before attempting to register a newly connected
     /// device. The default is 200.
     ///
