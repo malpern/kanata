@@ -105,4 +105,68 @@ kanata.kbd in the current working directory and
     /// configuration but want to default to no logging.
     #[arg(long, verbatim_doc_comment)]
     pub log_layer_changes: bool,
+
+    /// Skip the "Press enter to exit" prompt and exit immediately.
+    /// Useful for running kanata as a background service (e.g., systemd)
+    /// where automatic restart on failure is desired.
+    #[arg(long, verbatim_doc_comment)]
+    pub no_wait: bool,
+
+    /// Exit code to use when emergency exit is triggered (LCtrl+Space+Escape).
+    /// Default is 0 (success). Set to non-zero if your service manager should
+    /// treat emergency exit as a failure and restart.
+    #[arg(long, default_value = "0", verbatim_doc_comment)]
+    pub emergency_exit_code: i32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_wait_flag_default_false() {
+        let args = Args::try_parse_from(["kanata"]).unwrap();
+        assert!(!args.no_wait);
+    }
+
+    #[test]
+    fn no_wait_flag_enabled() {
+        let args = Args::try_parse_from(["kanata", "--no-wait"]).unwrap();
+        assert!(args.no_wait);
+    }
+
+    #[test]
+    fn no_wait_with_other_flags() {
+        let args =
+            Args::try_parse_from(["kanata", "--no-wait", "--nodelay", "-c", "test.kbd"]).unwrap();
+        assert!(args.no_wait);
+        assert!(args.nodelay);
+    }
+
+    #[test]
+    fn emergency_exit_code_default() {
+        let args = Args::try_parse_from(["kanata"]).unwrap();
+        assert_eq!(args.emergency_exit_code, 0);
+    }
+
+    #[test]
+    fn emergency_exit_code_custom() {
+        let args = Args::try_parse_from(["kanata", "--emergency-exit-code", "42"]).unwrap();
+        assert_eq!(args.emergency_exit_code, 42);
+    }
+
+    #[test]
+    fn emergency_exit_code_with_other_flags() {
+        let args = Args::try_parse_from([
+            "kanata",
+            "--emergency-exit-code",
+            "1",
+            "--no-wait",
+            "-c",
+            "test.kbd",
+        ])
+        .unwrap();
+        assert_eq!(args.emergency_exit_code, 1);
+        assert!(args.no_wait);
+    }
 }
