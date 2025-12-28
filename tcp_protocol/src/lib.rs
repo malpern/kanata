@@ -12,7 +12,7 @@
 //! ## KeyPath Extensions (Fork-only)
 //!
 //! - `KeyInput` / `KeyOutput`: Live key event streaming for overlay
-//! - `HoldActivated`: Tap-hold state notifications
+//! - `TapActivated` / `HoldActivated`: Tap-hold state notifications
 //! - `Ready` / `ConfigError`: Config reload status events
 
 use serde::{Deserialize, Serialize};
@@ -105,6 +105,15 @@ pub enum ServerMessage {
         /// Physical key name (e.g., "caps")
         key: String,
         /// Hold action description (e.g., "lctl+lmet+lalt+lsft")
+        action: String,
+        /// Timestamp in milliseconds since Kanata start
+        t: u64,
+    },
+    /// Sent when a tap-hold key triggers its tap action
+    TapActivated {
+        /// Physical key name (e.g., "caps")
+        key: String,
+        /// Tap action output (e.g., "esc")
         action: String,
         /// Timestamp in milliseconds since Kanata start
         t: u64,
@@ -378,5 +387,18 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("HoldActivated"));
         assert!(json.contains("\"key\":\"caps\""));
+    }
+
+    #[test]
+    fn test_tap_activated_event() {
+        let msg = ServerMessage::TapActivated {
+            key: "caps".to_string(),
+            action: "esc".to_string(),
+            t: 12345,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("TapActivated"));
+        assert!(json.contains("\"key\":\"caps\""));
+        assert!(json.contains("\"action\":\"esc\""));
     }
 }

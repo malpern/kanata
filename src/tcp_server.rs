@@ -416,6 +416,7 @@ impl TcpServer {
                                                     "ready".to_string(),
                                                     // Overlay/telemetry capabilities
                                                     "hold_activated".to_string(),
+                                                    "tap_activated".to_string(),
                                                     "key_input".to_string(),
                                                 ];
                                                 let msg = ServerMessage::HelloOk {

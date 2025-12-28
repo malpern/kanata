@@ -1227,6 +1227,22 @@ impl Kanata {
             }
         }
 
+        // Check for tap-hold triggering tap action and broadcast via TCP
+        #[cfg(feature = "tcp_server")]
+        if let Some(tap_info) = layout.take_tap_activated() {
+            if let Some(tx) = _tx {
+                // Convert coord to key name: coord is (row, col) where col is OsCode value for row 0
+                let osc = OsCode::from(tap_info.coord.1);
+                let key_name = osc.to_string().to_lowercase();
+                let t = self.start_time.elapsed().as_millis() as u64;
+                // Note: action string is empty for now - consumers should look up
+                // the tap action from the config's layer key mapping using the key name.
+                let action = String::new();
+                log::info!("TapActivated: key={} coord={:?} t={}", key_name, tap_info.coord, t);
+                let _ = tx.try_send(ServerMessage::TapActivated { key: key_name, action, t });
+            }
+        }
+
         let mut live_reload_requested = false;
         let cur_keys = &mut self.cur_keys;
         cur_keys.extend(layout.keycodes());

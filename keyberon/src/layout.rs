@@ -121,11 +121,22 @@ where
     /// Contains (coord, hold_action) that was just activated.
     /// Cleared after being read via `take_hold_activated()`.
     pub hold_activated: Option<HoldActivatedInfo>,
+    /// Tracks when a tap-hold key triggers its tap action.
+    /// Contains coord that was just tapped.
+    /// Cleared after being read via `take_tap_activated()`.
+    pub tap_activated: Option<TapActivatedInfo>,
 }
 
 /// Information about a tap-hold key that just transitioned to hold state.
 #[derive(Debug, Clone)]
 pub struct HoldActivatedInfo {
+    /// The key coordinate (row, column)
+    pub coord: KCoord,
+}
+
+/// Information about a tap-hold key that just triggered its tap action.
+#[derive(Debug, Clone)]
+pub struct TapActivatedInfo {
     /// The key coordinate (row, column)
     pub coord: KCoord,
 }
@@ -1139,6 +1150,7 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
             delegate_to_first_layer: false,
             chords_v2: None,
             hold_activated: None,
+            tap_activated: None,
         }
     }
     pub fn new_with_trans_action_settings(
@@ -1167,6 +1179,12 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
     /// Returns None if no hold was activated, or if it was already taken.
     pub fn take_hold_activated(&mut self) -> Option<HoldActivatedInfo> {
         self.hold_activated.take()
+    }
+
+    /// Takes the tap activation info if one occurred this tick.
+    /// Returns None if no tap was activated, or if it was already taken.
+    pub fn take_tap_activated(&mut self) -> Option<TapActivatedInfo> {
+        self.tap_activated.take()
     }
 
     fn waiting_into_hold(&mut self, idx: i8) -> CustomEvent<'a, T> {
@@ -1221,6 +1239,8 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
             } else {
                 self.extra_waiting.remove(idx as usize);
             }
+            // Track that tap was activated for this key (for TCP notification)
+            self.tap_activated = Some(TapActivatedInfo { coord });
             let ret = self.do_action(
                 tap,
                 coord,
