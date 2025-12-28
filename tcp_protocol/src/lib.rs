@@ -13,6 +13,9 @@
 //!
 //! - `KeyInput` / `KeyOutput`: Live key event streaming for overlay
 //! - `TapActivated` / `HoldActivated`: Tap-hold state notifications
+//! - `OneShotActivated`: One-shot modifier activation
+//! - `ChordResolved`: Chord combo resolution
+//! - `TapDanceResolved`: Tap-dance resolution
 //! - `Ready` / `ConfigError`: Config reload status events
 
 use serde::{Deserialize, Serialize};
@@ -114,6 +117,35 @@ pub enum ServerMessage {
         /// Physical key name (e.g., "caps")
         key: String,
         /// Tap action output (e.g., "esc")
+        action: String,
+        /// Timestamp in milliseconds since Kanata start
+        t: u64,
+    },
+    /// Sent when a one-shot modifier key is activated
+    OneShotActivated {
+        /// Physical key name (e.g., "lsft")
+        key: String,
+        /// Modifier(s) being applied (e.g., "lsft" or "lctl+lsft")
+        modifiers: String,
+        /// Timestamp in milliseconds since Kanata start
+        t: u64,
+    },
+    /// Sent when a chord (multi-key combo) resolves to an action
+    ChordResolved {
+        /// Chord keys pressed (e.g., "s+d")
+        keys: String,
+        /// Resolved action description
+        action: String,
+        /// Timestamp in milliseconds since Kanata start
+        t: u64,
+    },
+    /// Sent when a tap-dance resolves to a specific action
+    TapDanceResolved {
+        /// Physical key name (e.g., "q")
+        key: String,
+        /// Number of taps detected
+        tap_count: u8,
+        /// Resolved action description
         action: String,
         /// Timestamp in milliseconds since Kanata start
         t: u64,
@@ -400,5 +432,43 @@ mod tests {
         assert!(json.contains("TapActivated"));
         assert!(json.contains("\"key\":\"caps\""));
         assert!(json.contains("\"action\":\"esc\""));
+    }
+
+    #[test]
+    fn test_oneshot_activated_event() {
+        let msg = ServerMessage::OneShotActivated {
+            key: "lsft".to_string(),
+            modifiers: "lsft".to_string(),
+            t: 12345,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("OneShotActivated"));
+        assert!(json.contains("\"key\":\"lsft\""));
+        assert!(json.contains("\"modifiers\":\"lsft\""));
+    }
+
+    #[test]
+    fn test_chord_resolved_event() {
+        let msg = ServerMessage::ChordResolved {
+            keys: "s+d".to_string(),
+            action: "esc".to_string(),
+            t: 12345,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("ChordResolved"));
+        assert!(json.contains("\"keys\":\"s+d\""));
+    }
+
+    #[test]
+    fn test_tap_dance_resolved_event() {
+        let msg = ServerMessage::TapDanceResolved {
+            key: "q".to_string(),
+            tap_count: 2,
+            action: "alt+tab".to_string(),
+            t: 12345,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("TapDanceResolved"));
+        assert!(json.contains("\"tap_count\":2"));
     }
 }
