@@ -141,6 +141,13 @@ pub struct TapActivatedInfo {
     pub coord: KCoord,
 }
 
+// TODO(KeyPath): Add emission points for these TCP overlay events:
+// - OneShotActivated: Emit when one-shot modifier is applied (see one-shot state machine)
+// - ChordResolved: Emit when chord/combo matches (see chord recognition logic)
+// - TapDanceResolved: Emit when tap-dance timer expires (see tap-dance timeout handler)
+// Reference: TapActivated emission in waiting_into_tap() and HoldActivated in waiting_into_hold()
+// Issue: https://github.com/malpern/KeyPath/issues/68
+
 pub struct History<T> {
     events: ArrayDeque<T, HISTORICAL_EVENT_LEN, arraydeque::behavior::Wrapping>,
     ticks_since_occurrences: ArrayDeque<u16, HISTORICAL_EVENT_LEN, arraydeque::behavior::Wrapping>,
