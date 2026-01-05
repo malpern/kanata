@@ -2,7 +2,7 @@ use anyhow::Result;
 use anyhow::{anyhow, bail};
 use clap::Parser;
 use kanata_state_machine::kanata::handle_fakekey_action;
-use kanata_state_machine::{oskbd::*, FakeKeyAction, FAKE_KEY_ROW, *};
+use kanata_state_machine::{FAKE_KEY_ROW, FakeKeyAction, oskbd::*, *};
 use simplelog::{format_description, *};
 use std::path::PathBuf;
 
