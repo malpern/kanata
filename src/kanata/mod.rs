@@ -78,7 +78,7 @@ use kanata_parser::cfg::list_actions::*;
 use kanata_parser::cfg::*;
 use kanata_parser::custom_action::*;
 pub use kanata_parser::keys::*;
-use kanata_tcp_protocol::ServerMessage;
+use kanata_tcp_protocol::{LiveKeyAction, ServerMessage};
 
 mod clipboard;
 use clipboard::*;
@@ -969,6 +969,40 @@ impl Kanata {
             }
         }
         Ok(())
+    }
+
+    /// Broadcast a KeyInput event over TCP for live overlay visualization.
+    /// Skips WakeUp ticks and reserved keys. Feature-gated to tcp_server only.
+    #[cfg(feature = "tcp_server")]
+    fn emit_key_input(&self, kev: &KeyEvent, tx: &Option<Sender<ServerMessage>>) {
+        log::debug!(
+            "[KeyInput] code={:?} value={:?} tx_present={}",
+            kev.code,
+            kev.value,
+            tx.is_some()
+        );
+        if kev.value == KeyValue::WakeUp || kev.code == OsCode::KEY_RESERVED {
+            return;
+        }
+        if let Some(tx) = tx {
+            let key_name = kev.code.to_string().to_lowercase();
+            let action = match kev.value {
+                KeyValue::Press => LiveKeyAction::Press,
+                KeyValue::Release => LiveKeyAction::Release,
+                KeyValue::Repeat => LiveKeyAction::Repeat,
+                _ => LiveKeyAction::Press, // Tap treated as press
+            };
+            let t = self.start_time.elapsed().as_millis() as u64;
+            if let Err(e) = tx.try_send(ServerMessage::KeyInput {
+                key: key_name.clone(),
+                action,
+                t,
+            }) {
+                log::warn!("[KeyInput] drop: channel full or disconnected: {e}");
+            } else {
+                log::info!("[KeyInput] sent key={} action={:?} t={}", key_name, action, t);
+            }
+        }
     }
 
     fn tick_held_vkeys(&mut self) {
@@ -2302,6 +2336,10 @@ impl Kanata {
 
                             let mut event_error = None;
                             for ev in &events {
+                                // Broadcast KeyInput event for live overlay
+                                #[cfg(feature = "tcp_server")]
+                                k.emit_key_input(ev, &tx);
+
                                 if let Err(e) = k.handle_input_event(ev) {
                                     event_error = Some(e);
                                     break;
@@ -2371,6 +2409,10 @@ impl Kanata {
 
                             let mut event_error = None;
                             for ev in &events {
+                                // Broadcast KeyInput event for live overlay
+                                #[cfg(feature = "tcp_server")]
+                                k.emit_key_input(ev, &tx);
+
                                 if let Err(e) = k.handle_input_event(ev) {
                                     event_error = Some(e);
                                     break;

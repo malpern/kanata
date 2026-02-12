@@ -322,6 +322,7 @@ impl TcpServer {
                                                     "current-layer-info".to_string(),
                                                     "fake-key".to_string(),
                                                     "set-mouse".to_string(),
+                                                    "key-input".to_string(),
                                                 ];
                                                 let msg = ServerMessage::HelloOk {
                                                     version,
