@@ -58,6 +58,22 @@ pub enum ServerMessage {
     TapActivated {
         key: String,
     },
+    /// Sent on every physical key press/release for live overlay visualization.
+    /// The `key` field is the physical key name (lowercase, e.g., `"space"`, `"a"`).
+    KeyInput {
+        key: String,
+        action: LiveKeyAction,
+        /// Milliseconds since kanata started (monotonic timestamp).
+        t: u64,
+    },
+}
+
+/// Action type for KeyInput events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LiveKeyAction {
+    Press,
+    Release,
+    Repeat,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -279,5 +295,30 @@ mod tests {
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert_eq!(json, r#"{"TapActivated":{"key":"a"}}"#);
+    }
+
+    #[test]
+    fn test_key_input_json_format() {
+        let msg = ServerMessage::KeyInput {
+            key: "space".to_string(),
+            action: LiveKeyAction::Press,
+            t: 12345,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(
+            json,
+            r#"{"KeyInput":{"key":"space","action":"Press","t":12345}}"#
+        );
+
+        // Round-trip
+        let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
+        match parsed {
+            ServerMessage::KeyInput { key, action, t } => {
+                assert_eq!(key, "space");
+                assert_eq!(action, LiveKeyAction::Press);
+                assert_eq!(t, 12345);
+            }
+            _ => panic!("Expected KeyInput"),
+        }
     }
 }
