@@ -2,6 +2,7 @@
 
 use crate::key_code::KeyCode;
 use crate::layout::{KCoord, QueuedIter, WaitingAction};
+use crate::tap_hold_tracker::TapHoldReason;
 use core::fmt::Debug;
 
 pub mod switch;
@@ -81,18 +82,22 @@ pub enum HoldTapConfig<'a> {
     /// initiated the HoldTap action, allowing the handler to identify which
     /// physical key is waiting for resolution.
     ///
-    /// The return value should be the intended action that should be used. A
-    /// [Some] value will cause one of: [WaitingAction::Tap] for the configured
-    /// tap action, [WaitingAction::Hold] for the hold action, and
-    /// [WaitingAction::NoOp] to drop handling of the key press. A [None]
-    /// value will cause a fallback to the timeout-based approach. If the
-    /// timeout is not triggered, the next tick will call the custom handler
-    /// again.
-    /// The bool value defines if the timeout check should be skipped at the
-    /// next tick. This should generally be false. This is used by `tap-hold-
-    /// except-keys` to handle presses even when the timeout has been reached.
+    /// The return value is a tuple of:
+    /// 1. The intended action — [Some] value will cause one of:
+    ///    [WaitingAction::Tap] for the configured tap action,
+    ///    [WaitingAction::Hold] for the hold action, and
+    ///    [WaitingAction::NoOp] to drop handling of the key press. A [None]
+    ///    value will cause a fallback to the timeout-based approach.
+    /// 2. Whether the timeout check should be skipped (generally false;
+    ///    used by `tap-hold-except-keys`).
+    /// 3. An optional [TapHoldReason] explaining why this decision was made.
+    ///    If [None], a generic reason will be inferred from the action.
     #[allow(clippy::type_complexity)]
-    Custom(&'a (dyn Fn(QueuedIter, KCoord) -> (Option<WaitingAction>, bool) + Send + Sync)),
+    Custom(
+        &'a (dyn Fn(QueuedIter, KCoord) -> (Option<WaitingAction>, bool, Option<TapHoldReason>)
+                 + Send
+                 + Sync),
+    ),
 }
 
 impl Debug for HoldTapConfig<'_> {

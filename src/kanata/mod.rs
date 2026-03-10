@@ -1231,8 +1231,15 @@ impl Kanata {
         {
             let osc = OsCode::from(hold_info.coord.1);
             let key = osc.to_string().to_lowercase();
-            log::debug!("HoldActivated: key={key} coord={:?}", hold_info.coord);
-            match tx.try_send(ServerMessage::HoldActivated { key }) {
+            let reason_str = hold_info.reason.as_str();
+            log::debug!(
+                "HoldActivated: key={key} reason={reason_str} coord={:?}",
+                hold_info.coord
+            );
+            match tx.try_send(ServerMessage::HoldActivated {
+                key,
+                reason: Some(reason_str.to_string()),
+            }) {
                 Ok(_) => {}
                 Err(error) => {
                     log::error!("could not send HoldActivated event: {}", error);
@@ -1246,8 +1253,15 @@ impl Kanata {
         {
             let osc = OsCode::from(tap_info.coord.1);
             let key = osc.to_string().to_lowercase();
-            log::debug!("TapActivated: key={key} coord={:?}", tap_info.coord);
-            match tx.try_send(ServerMessage::TapActivated { key }) {
+            let reason_str = tap_info.reason.as_str();
+            log::debug!(
+                "TapActivated: key={key} reason={reason_str} coord={:?}",
+                tap_info.coord
+            );
+            match tx.try_send(ServerMessage::TapActivated {
+                key,
+                reason: Some(reason_str.to_string()),
+            }) {
                 Ok(_) => {}
                 Err(error) => {
                     log::error!("could not send TapActivated event: {}", error);

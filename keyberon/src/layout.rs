@@ -130,7 +130,7 @@ where
     pub tap_hold_tracker: crate::tap_hold_tracker::TapHoldTracker,
 }
 
-pub use crate::tap_hold_tracker::{HoldActivatedInfo, TapActivatedInfo};
+pub use crate::tap_hold_tracker::{HoldActivatedInfo, TapActivatedInfo, TapHoldReason};
 
 pub struct History<T> {
     events: ArrayDeque<T, HISTORICAL_EVENT_LEN, arraydeque::behavior::Wrapping>,
@@ -463,6 +463,9 @@ pub struct WaitingState<'a, T: 'a + std::fmt::Debug> {
     config: WaitingConfig<'a, T>,
     layer_stack: LayerStack,
     prev_queue_len: QueueLen,
+    /// Why this tap-hold resolved the way it did. Set by `handle_hold_tap`
+    /// when the decision is made, read by `waiting_into_*` for tracing.
+    pub(crate) reason: TapHoldReason,
 }
 
 /// Actions that can be triggered for a key configured for HoldTap.
@@ -541,6 +544,7 @@ impl<'a, T: std::fmt::Debug> WaitingState<'a, T> {
             HoldTapConfig::Default => (),
             HoldTapConfig::HoldOnOtherKeyPress => {
                 if queued.iter().any(|s| s.event.is_press()) {
+                    self.reason = TapHoldReason::OtherKeyPress;
                     return Some(WaitingAction::Hold);
                 }
             }
@@ -551,14 +555,22 @@ impl<'a, T: std::fmt::Debug> WaitingState<'a, T> {
                         let (i, j) = q.event.coord();
                         let target = Event::Release(i, j);
                         if queued.clone().any(|q| q.event == target) {
+                            self.reason = TapHoldReason::PermissiveHold;
                             return Some(WaitingAction::Hold);
                         }
                     }
                 }
             }
             HoldTapConfig::Custom(func) => {
-                let (waiting_action, local_skip) = (func)(QueuedIter(queued.iter()), self.coord);
+                let (waiting_action, local_skip, reason) =
+                    (func)(QueuedIter(queued.iter()), self.coord);
                 if waiting_action.is_some() {
+                    // Use the closure's reason if provided, otherwise infer from action.
+                    self.reason = reason.unwrap_or(match waiting_action {
+                        Some(WaitingAction::Tap) => TapHoldReason::CustomTapKeys,
+                        Some(WaitingAction::Hold) => TapHoldReason::OppositeHand,
+                        _ => TapHoldReason::Timeout,
+                    });
                     return waiting_action;
                 }
                 skip_timeout = local_skip;
@@ -572,11 +584,14 @@ impl<'a, T: std::fmt::Debug> WaitingState<'a, T> {
             .find(|s| self.is_corresponding_release(&s.event))
         {
             if self.timeout >= self.delay.saturating_sub(since_release) {
+                self.reason = TapHoldReason::ReleaseBeforeTimeout;
                 Some(WaitingAction::Tap)
             } else {
+                self.reason = TapHoldReason::ReleaseAfterTimeout;
                 Some(WaitingAction::Timeout)
             }
         } else if self.timeout == 0 && (!skip_timeout) {
+            self.reason = TapHoldReason::Timeout;
             Some(WaitingAction::Timeout)
         } else {
             None
@@ -1220,7 +1235,9 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
                 WaitingConfig::TapDance(_) => 0,
             };
             let layer_stack = w.layer_stack.clone();
-            self.tap_hold_tracker.set_hold_activated(coord, &w.config);
+            let reason = w.reason;
+            self.tap_hold_tracker
+                .set_hold_activated(coord, &w.config, reason);
             if idx < 0 {
                 self.waiting = None;
             } else {
@@ -1252,7 +1269,9 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
                 WaitingConfig::TapDance(_) => 0,
             };
             let layer_stack = w.layer_stack.clone();
-            self.tap_hold_tracker.set_tap_activated(coord, &w.config);
+            let reason = w.reason;
+            self.tap_hold_tracker
+                .set_tap_activated(coord, &w.config, reason);
             if idx < 0 {
                 self.waiting = None;
             } else {
@@ -1338,7 +1357,9 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
                 WaitingConfig::TapDance(_) => 0,
             };
             let layer_stack = w.layer_stack.clone();
-            self.tap_hold_tracker.set_hold_activated(coord, &w.config);
+            let reason = w.reason;
+            self.tap_hold_tracker
+                .set_hold_activated(coord, &w.config, reason);
             if idx < 0 {
                 self.waiting = None;
             } else {
@@ -1841,6 +1862,11 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
                             prior.ticks_since_occurrence <= self.tap_hold_require_prior_idle
                         });
                     if prior_idle_tap {
+                        self.tap_hold_tracker.set_tap_activated(
+                            coord,
+                            &WaitingConfig::<T>::HoldTap(*config),
+                            TapHoldReason::PriorIdle,
+                        );
                         let custom = self.do_action(tap, coord, delay, is_oneshot, layer_stack);
                         self.last_press_tracker.update_coord(coord);
                         return custom;
@@ -1868,6 +1894,7 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
                         config: WaitingConfig::HoldTap(*config),
                         layer_stack: layer_stack.collect(),
                         prev_queue_len: QueueLen::MAX,
+                        reason: TapHoldReason::Timeout,
                     };
                     if self.waiting.is_some() {
                         self.extra_waiting.push_back(waiting);
@@ -1924,6 +1951,7 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
                             }),
                             layer_stack: layer_stack.collect(),
                             prev_queue_len: QueueLen::MAX,
+                            reason: TapHoldReason::Timeout,
                         });
                     }
                     TapDanceConfig::Eager => {
@@ -1967,6 +1995,7 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
                     config: WaitingConfig::Chord(chords),
                     layer_stack: layer_stack.collect(),
                     prev_queue_len: QueueLen::MAX,
+                    reason: TapHoldReason::Timeout,
                 });
             }
             &KeyCode(keycode) => {
@@ -2724,17 +2753,29 @@ mod test {
 
     #[test]
     fn custom_handler() {
-        fn always_tap(_: QueuedIter, _: KCoord) -> (Option<WaitingAction>, bool) {
-            (Some(WaitingAction::Tap), false)
+        fn always_tap(
+            _: QueuedIter,
+            _: KCoord,
+        ) -> (Option<WaitingAction>, bool, Option<TapHoldReason>) {
+            (Some(WaitingAction::Tap), false, None)
         }
-        fn always_hold(_: QueuedIter, _: KCoord) -> (Option<WaitingAction>, bool) {
-            (Some(WaitingAction::Hold), false)
+        fn always_hold(
+            _: QueuedIter,
+            _: KCoord,
+        ) -> (Option<WaitingAction>, bool, Option<TapHoldReason>) {
+            (Some(WaitingAction::Hold), false, None)
         }
-        fn always_nop(_: QueuedIter, _: KCoord) -> (Option<WaitingAction>, bool) {
-            (Some(WaitingAction::NoOp), false)
+        fn always_nop(
+            _: QueuedIter,
+            _: KCoord,
+        ) -> (Option<WaitingAction>, bool, Option<TapHoldReason>) {
+            (Some(WaitingAction::NoOp), false, None)
         }
-        fn always_none(_: QueuedIter, _: KCoord) -> (Option<WaitingAction>, bool) {
-            (None, false)
+        fn always_none(
+            _: QueuedIter,
+            _: KCoord,
+        ) -> (Option<WaitingAction>, bool, Option<TapHoldReason>) {
+            (None, false, None)
         }
         static LAYERS: Layers<4, 1> = &[[[
             HoldTap(&HoldTapAction {
@@ -4806,6 +4847,7 @@ mod test {
             .take_hold_activated()
             .expect("hold_activated should be set");
         assert_eq!(info.coord, (0, 0));
+        assert_eq!(info.reason, TapHoldReason::Timeout);
         assert!(layout.tap_hold_tracker.take_hold_activated().is_none());
     }
 
@@ -4839,6 +4881,7 @@ mod test {
             .take_tap_activated()
             .expect("tap_activated should be set");
         assert_eq!(info.coord, (0, 0));
+        assert_eq!(info.reason, TapHoldReason::ReleaseBeforeTimeout);
         assert!(layout.tap_hold_tracker.take_tap_activated().is_none());
     }
 
@@ -4874,6 +4917,7 @@ mod test {
             .take_hold_activated()
             .expect("hold_activated should be set via waiting_into_hold");
         assert_eq!(info.coord, (0, 0));
+        assert_eq!(info.reason, TapHoldReason::PermissiveHold);
         assert!(layout.tap_hold_tracker.take_tap_activated().is_none());
     }
 
@@ -4907,6 +4951,7 @@ mod test {
             .take_hold_activated()
             .expect("hold_activated should be set via waiting_into_hold");
         assert_eq!(info.coord, (0, 0));
+        assert_eq!(info.reason, TapHoldReason::OtherKeyPress);
         assert!(layout.tap_hold_tracker.take_tap_activated().is_none());
     }
 
