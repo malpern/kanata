@@ -465,7 +465,7 @@ pub struct WaitingState<'a, T: 'a + std::fmt::Debug> {
     prev_queue_len: QueueLen,
     /// Why this tap-hold resolved the way it did. Set by `handle_hold_tap`
     /// when the decision is made, read by `waiting_into_*` for tracing.
-    pub(crate) reason: TapHoldReason,
+    reason: TapHoldReason,
 }
 
 /// Actions that can be triggered for a key configured for HoldTap.
@@ -568,8 +568,8 @@ impl<'a, T: std::fmt::Debug> WaitingState<'a, T> {
                     // Use the closure's reason if provided, otherwise infer from action.
                     self.reason = reason.unwrap_or(match waiting_action {
                         Some(WaitingAction::Tap) => TapHoldReason::CustomTapKeys,
-                        Some(WaitingAction::Hold) => TapHoldReason::OppositeHand,
-                        _ => TapHoldReason::Timeout,
+                        Some(WaitingAction::Hold) => TapHoldReason::CustomHold,
+                        _ => TapHoldReason::CustomHold,
                     });
                     return waiting_action;
                 }
