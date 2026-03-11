@@ -565,16 +565,15 @@ impl<'a, T: std::fmt::Debug> WaitingState<'a, T> {
             HoldTapConfig::Custom(func) => {
                 let (waiting_action, local_skip, reason) =
                     (func)(QueuedIter(queued.iter()), self.coord);
-                if waiting_action.is_some() {
+                if let Some(action) = waiting_action {
                     // Use the closure's reason if provided, otherwise infer from action.
-                    self.reason = Some(reason.unwrap_or(match waiting_action {
-                        Some(WaitingAction::Tap) => TapHoldReason::CustomTap,
-                        Some(WaitingAction::Hold) => TapHoldReason::CustomHold,
-                        Some(WaitingAction::NoOp) => TapHoldReason::CustomNoOp,
-                        Some(WaitingAction::Timeout) => TapHoldReason::Timeout,
-                        None => TapHoldReason::CustomHold,
+                    self.reason = Some(reason.unwrap_or(match action {
+                        WaitingAction::Tap => TapHoldReason::CustomTap,
+                        WaitingAction::Hold => TapHoldReason::CustomHold,
+                        WaitingAction::NoOp => TapHoldReason::CustomNoOp,
+                        WaitingAction::Timeout => TapHoldReason::Timeout,
                     }));
-                    return waiting_action;
+                    return Some(action);
                 }
                 skip_timeout = local_skip;
             }
@@ -1272,7 +1271,11 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
                 WaitingConfig::TapDance(_) => 0,
             };
             let layer_stack = w.layer_stack.clone();
-            let reason = w.reason.unwrap_or(TapHoldReason::Timeout);
+            debug_assert!(
+                w.reason.is_some() || !matches!(w.config, WaitingConfig::HoldTap(..)),
+                "HoldTap tap path should always set reason"
+            );
+            let reason = w.reason.unwrap_or(TapHoldReason::CustomTap);
             self.tap_hold_tracker
                 .set_tap_activated(coord, &w.config, reason);
             if idx < 0 {
@@ -5025,35 +5028,21 @@ mod test {
             k(A),
         ]]];
 
-        // Test CustomTap fallback: always_tap returns Tap on every call.
-        // Tick 1: enters waiting. Tick 2: custom fires, waiting_into_tap resolves.
+        // Test CustomTap fallback: custom_tap returns Tap immediately.
+        // Press → tick (enters waiting) → tick (custom fires, resolves as tap).
         let mut layout = Layout::new(LAYERS_TAP);
         layout.event(Press(0, 0));
-        let _ = layout.tick();
-        // Check after each tick until tap_activated is set
-        for _ in 0..5 {
-            if layout.tap_hold_tracker.take_tap_activated().is_some() {
-                break;
-            }
-            let _ = layout.tick();
-        }
-        // Re-trigger to get the info (take consumed it in the loop above)
-        // Simpler: just run fresh
-        let mut layout = Layout::new(LAYERS_TAP);
-        layout.event(Press(0, 0));
-        for _ in 0..5 {
-            let _ = layout.tick();
-        }
+        let _ = layout.tick(); // enters waiting
+        let _ = layout.tick(); // custom fires → tap
         let info = layout
             .tap_hold_tracker
             .take_tap_activated()
             .expect("tap_activated should be set");
         assert_eq!(info.reason, TapHoldReason::CustomTap);
 
-        // Test CustomHold fallback
+        // Test CustomHold fallback: custom_hold returns Hold immediately.
         let mut layout = Layout::new(LAYERS_HOLD);
         layout.event(Press(0, 0));
-        let _ = layout.tick();
         let _ = layout.tick();
         let _ = layout.tick();
         let info = layout
@@ -5062,10 +5051,9 @@ mod test {
             .expect("hold_activated should be set");
         assert_eq!(info.reason, TapHoldReason::CustomHold);
 
-        // Test explicit reason propagation
+        // Test explicit reason propagation: custom closure provides OppositeHand.
         let mut layout = Layout::new(LAYERS_REASON);
         layout.event(Press(0, 0));
-        let _ = layout.tick();
         let _ = layout.tick();
         let _ = layout.tick();
         let info = layout

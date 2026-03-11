@@ -16,7 +16,7 @@ use crate::layout::KCoord;
 /// Each variant names the specific decision path that determined the outcome.
 /// This is intended for debugging and tooling — it carries near-zero cost
 /// (one enum write per tap-hold resolution).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TapHoldReason {
     // ── Tap reasons ──────────────────────────────────────────────
     /// A different key was pressed recently (`tap-hold-require-prior-idle`),
