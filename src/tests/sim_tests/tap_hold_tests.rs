@@ -581,3 +581,129 @@ fn tap_hold_require_prior_idle_ignores_virtual_keys() {
     // Virtual key outputs A, then d times out to hold (lctl).
     assert_eq!("dn:A t:1ms up:A t:209ms dn:LCtrl t:50ms up:LCtrl", result);
 }
+
+// ========== per-action require-prior-idle override tests ==========
+
+#[test]
+fn per_action_require_prior_idle_overrides_global() {
+    // Global defcfg sets 150ms, but per-action override sets 50ms.
+    // A prior key 60ms ago is within 150ms (global) but outside 50ms (per-action).
+    // Per-action should win: normal hold behavior, not tap.
+    let result = simulate(
+        "
+(defcfg tap-hold-require-prior-idle 150)
+(defsrc a d)
+(deflayer base a @d)
+(defalias d (tap-hold 200 200 d lctl (require-prior-idle 50)))
+        ",
+        "d:a t:10 u:a t:50 d:d t:250 u:d t:50",
+    )
+    .to_ascii();
+    // 60ms gap > 50ms per-action threshold → normal hold
+    assert_eq!("dn:A t:10ms up:A t:250ms dn:LCtrl t:50ms up:LCtrl", result);
+}
+
+#[test]
+fn per_action_require_prior_idle_disable_overrides_global() {
+    // Global defcfg sets 150ms, but per-action override sets 0 (disabled).
+    // Even during a typing streak, this action should use normal tap-hold.
+    let result = simulate(
+        "
+(defcfg tap-hold-require-prior-idle 150)
+(defsrc a d)
+(deflayer base a @d)
+(defalias d (tap-hold 200 200 d lctl (require-prior-idle 0)))
+        ",
+        // a pressed 20ms ago, well within 150ms global threshold.
+        // But per-action disables it, so d enters normal WaitingState.
+        "d:a t:10 u:a t:10 d:d t:250 u:d t:50",
+    )
+    .to_ascii();
+    // d enters hold (250ms > 200ms timeout)
+    assert_eq!("dn:A t:10ms up:A t:210ms dn:LCtrl t:50ms up:LCtrl", result);
+}
+
+#[test]
+fn per_action_require_prior_idle_enables_without_global() {
+    // No global defcfg (default 0), but per-action sets 150ms.
+    // The per-action value should enable the feature for this action only.
+    let result = simulate(
+        "
+(defsrc a d)
+(deflayer base a @d)
+(defalias d (tap-hold 200 200 d lctl (require-prior-idle 150)))
+        ",
+        "d:a t:10 u:a t:10 d:d t:50 u:d t:50",
+    )
+    .to_ascii();
+    // a pressed 20ms ago, within 150ms per-action threshold → tap
+    assert_eq!("dn:A t:10ms up:A t:10ms dn:D t:50ms up:D", result);
+}
+
+#[test]
+fn per_action_require_prior_idle_mixed_actions() {
+    // The issue #1967 use case: HRMs use global require-prior-idle,
+    // but a layer-tap key disables it to allow immediate layer activation.
+    // Use plain 'a' (not tap-hold) so it outputs immediately.
+    let result = simulate(
+        "
+(defcfg tap-hold-require-prior-idle 150)
+(defsrc a d)
+(deflayer base a @d)
+(defalias d (tap-hold 200 200 d lctl (require-prior-idle 0)))
+        ",
+        // Type a quickly, then press d.
+        // Global 150ms would force tap, but d has per-action 0 (disabled).
+        // d should enter normal hold behavior.
+        "d:a t:10 u:a t:10 d:d t:250 u:d t:50",
+    )
+    .to_ascii();
+    // d enters hold (per-action override 0 disables idle check)
+    assert_eq!("dn:A t:10ms up:A t:210ms dn:LCtrl t:50ms up:LCtrl", result);
+}
+
+#[test]
+fn per_action_require_prior_idle_with_tap_hold_release() {
+    // Per-action option works with tap-hold-release variant.
+    let result = simulate(
+        "
+(defcfg tap-hold-require-prior-idle 150)
+(defsrc a d)
+(deflayer base a @d)
+(defalias d (tap-hold-release 200 200 d lctl (require-prior-idle 0)))
+        ",
+        // Typing streak: a pressed 20ms ago. Global would force tap,
+        // but per-action 0 disables it.
+        "d:a t:10 u:a t:10 d:d t:250 u:d t:50",
+    )
+    .to_ascii();
+    // d enters normal hold (per-action override disables idle check)
+    assert_eq!("dn:A t:10ms up:A t:210ms dn:LCtrl t:50ms up:LCtrl", result);
+}
+
+#[test]
+fn per_action_require_prior_idle_with_opposite_hand() {
+    // Per-action option works with tap-hold-opposite-hand variant.
+    // Use j (right hand) pressing before f (left hand tap-hold).
+    // Without require-prior-idle, j is opposite-hand → f would hold.
+    // With global require-prior-idle 150, the typing streak forces tap.
+    // With per-action override 0, the override disables it and f holds.
+    let result = simulate(
+        "
+(defcfg tap-hold-require-prior-idle 150)
+(defhands (left a s d f g) (right h j k l ;))
+(defsrc j f)
+(deflayer base j @f)
+(defalias f (tap-hold-opposite-hand 200 f lctl
+  (timeout hold)
+  (require-prior-idle 0)))
+        ",
+        // j (right) pressed 20ms ago, then f (left) pressed.
+        // Global 150ms would force tap, but per-action 0 disables it.
+        // j is opposite hand → f should hold. timeout → hold.
+        "d:j t:10 u:j t:10 d:f t:250 u:f t:50",
+    )
+    .to_ascii();
+    // f enters normal opposite-hand behavior: j is opposite → hold
+    assert_eq!("dn:J t:10ms up:J t:210ms dn:LCtrl t:50ms up:LCtrl", result);
+}
