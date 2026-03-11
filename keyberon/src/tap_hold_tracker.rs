@@ -42,6 +42,8 @@ pub enum TapHoldReason {
     Timeout,
     /// The hold-tap key was released after the timeout (`release-after-timeout`).
     ReleaseAfterTimeout,
+
+    // ── Custom closure fallbacks ─────────────────────────────────
     /// A custom closure returned Hold without specifying a reason.
     CustomHold,
     /// A custom closure returned Tap without specifying a reason.
