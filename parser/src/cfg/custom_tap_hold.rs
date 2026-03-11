@@ -1,4 +1,4 @@
-use kanata_keyberon::layout::{Event, KCoord, QueuedIter, REAL_KEY_ROW, WaitingAction};
+use kanata_keyberon::layout::{Event, KCoord, QueuedIter, REAL_KEY_ROW, TapHoldReason, WaitingAction};
 
 use crate::keys::OsCode;
 
@@ -39,7 +39,7 @@ pub(crate) enum DecisionBehavior {
 
 /// The function-trait object stored inside `HoldTapConfig::Custom`.
 pub(crate) type CustomTapHoldFn =
-    dyn Fn(QueuedIter, KCoord) -> (Option<WaitingAction>, bool) + Send + Sync;
+    dyn Fn(QueuedIter, KCoord) -> (Option<WaitingAction>, bool, Option<TapHoldReason>) + Send + Sync;
 
 /// Returns a closure that can be used in `HoldTapConfig::Custom`, which will return early with a
 /// Tap action in the case that any of `keys` are pressed. Otherwise it behaves as
@@ -50,22 +50,32 @@ pub(crate) fn custom_tap_hold_release(
 ) -> &'static CustomTapHoldFn {
     let keys = a.sref_vec(Vec::from_iter(keys.iter().copied()));
     a.sref(
-        move |mut queued: QueuedIter, _coord: KCoord| -> (Option<WaitingAction>, bool) {
+        move |mut queued: QueuedIter,
+              _coord: KCoord|
+              -> (Option<WaitingAction>, bool, Option<TapHoldReason>) {
             while let Some(q) = queued.next() {
                 if q.event().is_press() {
                     let (i, j) = q.event().coord();
                     // If any key matches the input, do a tap right away.
                     if i == REAL_KEY_ROW && keys.iter().copied().map(u16::from).any(|j2| j2 == j) {
-                        return (Some(WaitingAction::Tap), false);
+                        return (
+                            Some(WaitingAction::Tap),
+                            false,
+                            Some(TapHoldReason::CustomTapKeys),
+                        );
                     }
                     // Otherwise do the PermissiveHold algorithm.
                     let target = Event::Release(i, j);
                     if queued.clone().copied().any(|q| q.event() == target) {
-                        return (Some(WaitingAction::Hold), false);
+                        return (
+                            Some(WaitingAction::Hold),
+                            false,
+                            Some(TapHoldReason::PermissiveHold),
+                        );
                     }
                 }
             }
-            (None, false)
+            (None, false, None)
         },
     )
 }
@@ -89,7 +99,9 @@ pub(crate) fn custom_tap_hold_release_trigger_tap_release(
         keys_press_trigger_tap.iter().copied().map(u16::from),
     ));
     a.sref(
-        move |mut queued: QueuedIter, _coord: KCoord| -> (Option<WaitingAction>, bool) {
+        move |mut queued: QueuedIter,
+              _coord: KCoord|
+              -> (Option<WaitingAction>, bool, Option<TapHoldReason>) {
             while let Some(q) = queued.next() {
                 if q.event().is_press() {
                     let (i, j) = q.event().coord();
@@ -99,7 +111,11 @@ pub(crate) fn custom_tap_hold_release_trigger_tap_release(
                     // If any pressed key matches the press list and has been released, do
                     // a tap right away.
                     if keys_press_trigger_tap.iter().copied().any(|j2| j2 == j) {
-                        return (Some(WaitingAction::Tap), false);
+                        return (
+                            Some(WaitingAction::Tap),
+                            false,
+                            Some(TapHoldReason::CustomReleaseTrigger),
+                        );
                     }
                     // If any pressed key matches the press-release list and has been released, do
                     // a tap right away.
@@ -110,17 +126,25 @@ pub(crate) fn custom_tap_hold_release_trigger_tap_release(
                     {
                         let target = Event::Release(i, j);
                         if queued.clone().copied().any(|q| q.event() == target) {
-                            return (Some(WaitingAction::Tap), false);
+                            return (
+                                Some(WaitingAction::Tap),
+                                false,
+                                Some(TapHoldReason::CustomReleaseTrigger),
+                            );
                         }
                     }
                     // Otherwise do the PermissiveHold algorithm.
                     let target = Event::Release(i, j);
                     if queued.clone().copied().any(|q| q.event() == target) {
-                        return (Some(WaitingAction::Hold), false);
+                        return (
+                            Some(WaitingAction::Hold),
+                            false,
+                            Some(TapHoldReason::PermissiveHold),
+                        );
                     }
                 }
             }
-            (None, false)
+            (None, false, None)
         },
     )
 }
@@ -128,20 +152,26 @@ pub(crate) fn custom_tap_hold_release_trigger_tap_release(
 pub(crate) fn custom_tap_hold_except(keys: &[OsCode], a: &Allocations) -> &'static CustomTapHoldFn {
     let keys = a.sref_vec(Vec::from_iter(keys.iter().copied()));
     a.sref(
-        move |mut queued: QueuedIter, _coord: KCoord| -> (Option<WaitingAction>, bool) {
+        move |mut queued: QueuedIter,
+              _coord: KCoord|
+              -> (Option<WaitingAction>, bool, Option<TapHoldReason>) {
             for q in queued.by_ref() {
                 if q.event().is_press() {
                     let (_i, j) = q.event().coord();
                     // If any key matches the input, do a tap.
                     if keys.iter().copied().map(u16::from).any(|j2| j2 == j) {
-                        return (Some(WaitingAction::Tap), false);
+                        return (
+                            Some(WaitingAction::Tap),
+                            false,
+                            Some(TapHoldReason::CustomTapKeys),
+                        );
                     }
                     // Otherwise continue with default behavior
-                    return (None, false);
+                    return (None, false, None);
                 }
             }
             // Otherwise skip timeout
-            (None, true)
+            (None, true, None)
         },
     )
 }
@@ -155,19 +185,25 @@ pub(crate) fn custom_tap_hold_tap_keys(
 ) -> &'static CustomTapHoldFn {
     let keys = a.sref_vec(Vec::from_iter(keys.iter().copied()));
     a.sref(
-        move |mut queued: QueuedIter, _coord: KCoord| -> (Option<WaitingAction>, bool) {
+        move |mut queued: QueuedIter,
+              _coord: KCoord|
+              -> (Option<WaitingAction>, bool, Option<TapHoldReason>) {
             for q in queued.by_ref() {
                 if q.event().is_press() {
                     let (_i, j) = q.event().coord();
                     // If any key matches the input, do a tap.
                     if keys.iter().copied().map(u16::from).any(|j2| j2 == j) {
-                        return (Some(WaitingAction::Tap), false);
+                        return (
+                            Some(WaitingAction::Tap),
+                            false,
+                            Some(TapHoldReason::CustomTapKeys),
+                        );
                     }
                     // Otherwise continue with default behavior (no early hold activation)
                 }
             }
             // Wait for timeout (key difference from custom_tap_hold_except which returns true)
-            (None, false)
+            (None, false, None)
         },
     )
 }
@@ -181,7 +217,9 @@ pub(crate) fn custom_tap_hold_opposite_hand(
     a: &Allocations,
 ) -> &'static CustomTapHoldFn {
     a.sref(
-        move |queued: QueuedIter, coord: KCoord| -> (Option<WaitingAction>, bool) {
+        move |queued: QueuedIter,
+              coord: KCoord|
+              -> (Option<WaitingAction>, bool, Option<TapHoldReason>) {
             let (_row, col) = coord;
             let waiting_hand = hand_map.get(col);
 
@@ -198,8 +236,20 @@ pub(crate) fn custom_tap_hold_opposite_hand(
                 if let Some(osc) = OsCode::from_u16(j) {
                     if neutral_keys.contains(&osc) {
                         match neutral_behavior {
-                            DecisionBehavior::Tap => return (Some(WaitingAction::Tap), false),
-                            DecisionBehavior::Hold => return (Some(WaitingAction::Hold), false),
+                            DecisionBehavior::Tap => {
+                                return (
+                                    Some(WaitingAction::Tap),
+                                    false,
+                                    Some(TapHoldReason::NeutralKey),
+                                )
+                            }
+                            DecisionBehavior::Hold => {
+                                return (
+                                    Some(WaitingAction::Hold),
+                                    false,
+                                    Some(TapHoldReason::NeutralKey),
+                                )
+                            }
                             DecisionBehavior::Ignore => continue,
                         }
                     }
@@ -209,24 +259,52 @@ pub(crate) fn custom_tap_hold_opposite_hand(
 
                 match (waiting_hand, pressed_hand) {
                     (Hand::Left, Hand::Right) | (Hand::Right, Hand::Left) => {
-                        return (Some(WaitingAction::Hold), false);
+                        return (
+                            Some(WaitingAction::Hold),
+                            false,
+                            Some(TapHoldReason::OppositeHand),
+                        );
                     }
                     (Hand::Left, Hand::Left) | (Hand::Right, Hand::Right) => match same_hand {
-                        DecisionBehavior::Tap => return (Some(WaitingAction::Tap), false),
-                        DecisionBehavior::Hold => return (Some(WaitingAction::Hold), false),
+                        DecisionBehavior::Tap => {
+                            return (
+                                Some(WaitingAction::Tap),
+                                false,
+                                Some(TapHoldReason::SameHandRoll),
+                            )
+                        }
+                        DecisionBehavior::Hold => {
+                            return (
+                                Some(WaitingAction::Hold),
+                                false,
+                                Some(TapHoldReason::SameHandRoll),
+                            )
+                        }
                         DecisionBehavior::Ignore => continue,
                     },
                     _ => {
                         // At least one key is Neutral (not in defhands)
                         match unknown_hand {
-                            DecisionBehavior::Tap => return (Some(WaitingAction::Tap), false),
-                            DecisionBehavior::Hold => return (Some(WaitingAction::Hold), false),
+                            DecisionBehavior::Tap => {
+                                return (
+                                    Some(WaitingAction::Tap),
+                                    false,
+                                    Some(TapHoldReason::UnknownHand),
+                                )
+                            }
+                            DecisionBehavior::Hold => {
+                                return (
+                                    Some(WaitingAction::Hold),
+                                    false,
+                                    Some(TapHoldReason::UnknownHand),
+                                )
+                            }
                             DecisionBehavior::Ignore => continue,
                         }
                     }
                 }
             }
-            (None, false)
+            (None, false, None)
         },
     )
 }
