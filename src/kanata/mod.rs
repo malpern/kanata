@@ -1238,7 +1238,7 @@ impl Kanata {
             );
             match tx.try_send(ServerMessage::HoldActivated {
                 key,
-                reason: Some(reason_str),
+                reason: Some(reason_str.to_string()),
             }) {
                 Ok(_) => {}
                 Err(error) => {
@@ -1260,7 +1260,7 @@ impl Kanata {
             );
             match tx.try_send(ServerMessage::TapActivated {
                 key,
-                reason: Some(reason_str),
+                reason: Some(reason_str.to_string()),
             }) {
                 Ok(_) => {}
                 Err(error) => {

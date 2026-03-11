@@ -54,7 +54,7 @@ pub enum ServerMessage {
     HoldActivated {
         key: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        reason: Option<&'static str>,
+        reason: Option<String>,
     },
     /// Sent when a tap-hold key triggers its tap action.
     /// The `key` field is the physical key name (e.g., `"caps"`, `"a"`).
@@ -62,7 +62,7 @@ pub enum ServerMessage {
     TapActivated {
         key: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        reason: Option<&'static str>,
+        reason: Option<String>,
     },
     /// Sent on every physical key press/release for live overlay visualization.
     /// The `key` field is the physical key name (lowercase, e.g., `"space"`, `"a"`).
@@ -289,7 +289,7 @@ mod tests {
     fn test_hold_activated_json_format() {
         let msg = ServerMessage::HoldActivated {
             key: "caps".to_string(),
-            reason: Some("opposite-hand"),
+            reason: Some("opposite-hand".into()),
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert_eq!(
@@ -313,7 +313,7 @@ mod tests {
     fn test_tap_activated_json_format() {
         let msg = ServerMessage::TapActivated {
             key: "a".to_string(),
-            reason: Some("prior-idle"),
+            reason: Some("prior-idle".into()),
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert_eq!(

@@ -44,6 +44,10 @@ pub enum TapHoldReason {
     ReleaseAfterTimeout,
     /// A custom closure returned Hold without specifying a reason.
     CustomHold,
+    /// A custom closure returned Tap without specifying a reason.
+    CustomTap,
+    /// A custom closure returned NoOp without specifying a reason.
+    CustomNoOp,
 
     // ── Neutral / edge cases ─────────────────────────────────────
     /// A neutral key triggered hold or tap (opposite-hand custom closure).
@@ -67,6 +71,8 @@ impl TapHoldReason {
             Self::Timeout => "timeout",
             Self::ReleaseAfterTimeout => "release-after-timeout",
             Self::CustomHold => "custom-hold",
+            Self::CustomTap => "custom-tap",
+            Self::CustomNoOp => "custom-noop",
             Self::NeutralKey => "neutral-key",
             Self::UnknownHand => "unknown-hand",
         }
