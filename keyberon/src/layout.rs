@@ -1856,17 +1856,18 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
                 config,
                 tap_hold_interval,
                 on_press_reset_timeout_to,
+                require_prior_idle,
             }) => {
                 // Typing streak detection: if a different physical key was pressed
                 // recently, resolve as tap immediately without entering WaitingState.
-                if self.tap_hold_require_prior_idle > 0 {
+                // Per-action override takes precedence over the global defcfg value.
+                let idle_threshold = require_prior_idle.unwrap_or(self.tap_hold_require_prior_idle);
+                if idle_threshold > 0 {
                     let prior_idle_tap = self
                         .historical_inputs
                         .iter_hevents()
                         .find(|prior| prior.event.0 == REAL_KEY_ROW && prior.event != coord)
-                        .is_some_and(|prior| {
-                            prior.ticks_since_occurrence <= self.tap_hold_require_prior_idle
-                        });
+                        .is_some_and(|prior| prior.ticks_since_occurrence <= idle_threshold);
                     if prior_idle_tap {
                         self.tap_hold_tracker.set_tap_activated(
                             coord,
@@ -2335,6 +2336,7 @@ mod test {
             [[
                 HoldTap(&HoldTapAction {
                     on_press_reset_timeout_to: None,
+                    require_prior_idle: None,
                     timeout: 200,
                     hold: l(1),
                     tap: k(Space),
@@ -2344,6 +2346,7 @@ mod test {
                 }),
                 HoldTap(&HoldTapAction {
                     on_press_reset_timeout_to: None,
+                    require_prior_idle: None,
                     timeout: 200,
                     hold: k(LCtrl),
                     timeout_action: k(LShift),
@@ -2389,6 +2392,7 @@ mod test {
             [[
                 HoldTap(&HoldTapAction {
                     on_press_reset_timeout_to: None,
+                    require_prior_idle: None,
                     timeout: 200,
                     hold: l(1),
                     tap: k(Space),
@@ -2398,6 +2402,7 @@ mod test {
                 }),
                 HoldTap(&HoldTapAction {
                     on_press_reset_timeout_to: None,
+                    require_prior_idle: None,
                     timeout: 200,
                     hold: k(LCtrl),
                     timeout_action: k(LCtrl),
@@ -2442,6 +2447,7 @@ mod test {
         static LAYERS: Layers<2, 1> = &[[[
             HoldTap(&HoldTapAction {
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
                 timeout: 200,
                 hold: k(LAlt),
                 timeout_action: k(LAlt),
@@ -2451,6 +2457,7 @@ mod test {
             }),
             HoldTap(&HoldTapAction {
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
                 timeout: 20,
                 hold: k(LCtrl),
                 timeout_action: k(LCtrl),
@@ -2493,6 +2500,7 @@ mod test {
         static LAYERS: Layers<2, 1> = &[[[
             HoldTap(&HoldTapAction {
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
                 timeout: 200,
                 hold: k(LAlt),
                 timeout_action: k(LAlt),
@@ -2552,6 +2560,7 @@ mod test {
         static LAYERS: Layers<2, 1> = &[[[
             HoldTap(&HoldTapAction {
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
                 timeout: 200,
                 hold: k(LAlt),
                 timeout_action: k(LAlt),
@@ -2593,6 +2602,7 @@ mod test {
         static LAYERS: Layers<3, 1> = &[[[
             HoldTap(&HoldTapAction {
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
                 timeout: 200,
                 hold: k(LAlt),
                 timeout_action: k(LAlt),
@@ -2602,6 +2612,7 @@ mod test {
             }),
             HoldTap(&HoldTapAction {
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
                 timeout: 200,
                 hold: k(RAlt),
                 timeout_action: k(RAlt),
@@ -2611,6 +2622,7 @@ mod test {
             }),
             HoldTap(&HoldTapAction {
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
                 timeout: 200,
                 hold: k(LCtrl),
                 timeout_action: k(LCtrl),
@@ -2788,6 +2800,7 @@ mod test {
         static LAYERS: Layers<4, 1> = &[[[
             HoldTap(&HoldTapAction {
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
                 timeout: 200,
                 hold: k(Kb1),
                 timeout_action: k(Kb1),
@@ -2797,6 +2810,7 @@ mod test {
             }),
             HoldTap(&HoldTapAction {
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
                 timeout: 200,
                 hold: k(Kb3),
                 timeout_action: k(Kb3),
@@ -2806,6 +2820,7 @@ mod test {
             }),
             HoldTap(&HoldTapAction {
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
                 timeout: 200,
                 hold: k(Kb5),
                 timeout_action: k(Kb5),
@@ -2815,6 +2830,7 @@ mod test {
             }),
             HoldTap(&HoldTapAction {
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
                 timeout: 200,
                 hold: k(Kb7),
                 timeout_action: k(Kb7),
@@ -2889,6 +2905,7 @@ mod test {
         static LAYERS: Layers<2, 1> = &[[[
             HoldTap(&HoldTapAction {
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
                 timeout: 200,
                 hold: k(LAlt),
                 timeout_action: k(LAlt),
@@ -2945,6 +2962,7 @@ mod test {
         static LAYERS: Layers<3, 1> = &[[[
             HoldTap(&HoldTapAction {
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
                 timeout: 200,
                 hold: k(LAlt),
                 timeout_action: k(LAlt),
@@ -2955,6 +2973,7 @@ mod test {
             k(Enter),
             HoldTap(&HoldTapAction {
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
                 timeout: 200,
                 hold: k(LAlt),
                 timeout_action: k(LAlt),
@@ -3069,6 +3088,7 @@ mod test {
     fn tap_hold_interval_short_hold() {
         static LAYERS: Layers<1, 1> = &[[[HoldTap(&HoldTapAction {
             on_press_reset_timeout_to: None,
+            require_prior_idle: None,
             timeout: 50,
             hold: k(LAlt),
             timeout_action: k(LAlt),
@@ -3113,6 +3133,7 @@ mod test {
         static LAYERS: Layers<2, 1> = &[[[
             HoldTap(&HoldTapAction {
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
                 timeout: 50,
                 hold: k(LAlt),
                 timeout_action: k(LAlt),
@@ -3122,6 +3143,7 @@ mod test {
             }),
             HoldTap(&HoldTapAction {
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
                 timeout: 200,
                 hold: k(RAlt),
                 timeout_action: k(RAlt),
@@ -3640,6 +3662,7 @@ mod test {
                 }),
                 HoldTap(&HoldTapAction {
                     on_press_reset_timeout_to: None,
+                    require_prior_idle: None,
                     timeout: 100,
                     hold: k(LAlt),
                     timeout_action: k(LAlt),
@@ -3706,6 +3729,7 @@ mod test {
                         }),
                         &HoldTap(&HoldTapAction {
                             on_press_reset_timeout_to: None,
+                            require_prior_idle: None,
                             timeout: 100,
                             hold: k(LAlt),
                             timeout_action: k(LAlt),
@@ -4147,6 +4171,7 @@ mod test {
                     1,
                     &HoldTap(&HoldTapAction {
                         on_press_reset_timeout_to: None,
+                        require_prior_idle: None,
                         timeout: 100,
                         hold: k(A),
                         timeout_action: k(A),
@@ -4159,6 +4184,7 @@ mod test {
                     2,
                     &HoldTap(&HoldTapAction {
                         on_press_reset_timeout_to: None,
+                        require_prior_idle: None,
                         timeout: 100,
                         hold: k(B),
                         timeout_action: k(B),
@@ -4411,6 +4437,7 @@ mod test {
                 NoOp,
                 HoldTap(&HoldTapAction {
                     on_press_reset_timeout_to: None,
+                    require_prior_idle: None,
                     timeout: 50,
                     hold: k(Space),
                     timeout_action: k(Space),
@@ -4459,6 +4486,7 @@ mod test {
                 NoOp,
                 HoldTap(&HoldTapAction {
                     on_press_reset_timeout_to: None,
+                    require_prior_idle: None,
                     timeout: 50,
                     hold: Trans,
                     timeout_action: Trans,
@@ -4695,6 +4723,7 @@ mod test {
                 NoOp,
                 HoldTap(&HoldTapAction {
                     on_press_reset_timeout_to: None,
+                    require_prior_idle: None,
                     timeout: 50,
                     hold: k(B),
                     timeout_action: k(B),
@@ -4709,6 +4738,7 @@ mod test {
                 Layer(3),
                 HoldTap(&HoldTapAction {
                     on_press_reset_timeout_to: None,
+                    require_prior_idle: None,
                     timeout: 50,
                     hold: k(C),
                     timeout_action: k(C),
@@ -4723,6 +4753,7 @@ mod test {
                 NoOp,
                 HoldTap(&HoldTapAction {
                     on_press_reset_timeout_to: None,
+                    require_prior_idle: None,
                     timeout: 50,
                     hold: k(D),
                     timeout_action: k(D),
@@ -4837,6 +4868,7 @@ mod test {
             config: HoldTapConfig::Default,
             tap_hold_interval: 0,
             on_press_reset_timeout_to: None,
+            require_prior_idle: None,
         })]]];
         let mut layout = Layout::new(LAYERS);
         // Nothing set initially.
@@ -4871,6 +4903,7 @@ mod test {
                 config: HoldTapConfig::Default,
                 tap_hold_interval: 0,
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
             }),
             k(A),
         ]]];
@@ -4905,6 +4938,7 @@ mod test {
                 config: HoldTapConfig::PermissiveHold,
                 tap_hold_interval: 0,
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
             }),
             k(A),
         ]]];
@@ -4941,6 +4975,7 @@ mod test {
                 config: HoldTapConfig::HoldOnOtherKeyPress,
                 tap_hold_interval: 0,
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
             }),
             k(A),
         ]]];

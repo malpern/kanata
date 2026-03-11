@@ -107,6 +107,7 @@ pub(super) fn parse_tap_hold_opposite_hand(
     let mut neutral_behavior = DecisionBehavior::Ignore;
     let mut unknown_hand = DecisionBehavior::Ignore;
     let mut neutral_keys: Vec<OsCode> = Vec::new();
+    let mut require_prior_idle: Option<u16> = None;
     let mut seen_options: HashSet<&str> = HashSet::default();
 
     for option_expr in &ac_params[3..] {
@@ -175,10 +176,20 @@ pub(super) fn parse_tap_hold_opposite_hand(
                 }
                 neutral_keys = parse_key_atoms(&option[1..], s, "neutral-keys")?;
             }
+            "require-prior-idle" => {
+                if option.len() != 2 {
+                    bail_expr!(
+                        option_expr,
+                        "require-prior-idle option expects exactly 2 items: \
+                        `(require-prior-idle <ms>)`"
+                    );
+                }
+                require_prior_idle = Some(parse_u16(&option[1], s, "require-prior-idle")?);
+            }
             _ => bail_expr!(
                 &option[0],
                 "unknown option '{}' for tap-hold-opposite-hand. \
-                Valid options: timeout, same-hand, neutral, unknown-hand, neutral-keys",
+                Valid options: timeout, same-hand, neutral, unknown-hand, neutral-keys, require-prior-idle",
                 kw
             ),
         }
@@ -207,6 +218,7 @@ pub(super) fn parse_tap_hold_opposite_hand(
         hold: *hold_action,
         timeout_action: *timeout_action,
         on_press_reset_timeout_to: None,
+        require_prior_idle,
     }))))
 }
 

@@ -160,3 +160,81 @@ fn tap_hold_require_prior_idle_rejects_non_numeric() {
         //.map_err(|e| eprintln!("{:?}", miette::Error::from(e)))
         .expect_err("fails");
 }
+
+#[test]
+fn per_action_require_prior_idle_parses() {
+    let source = "
+(defsrc a)
+(deflayer base @a)
+(defalias a (tap-hold 200 200 a lctl (require-prior-idle 100)))
+";
+    parse_cfg(source)
+        .map_err(|e| eprintln!("{:?}", miette::Error::from(e)))
+        .expect("passes");
+}
+
+#[test]
+fn per_action_require_prior_idle_zero_parses() {
+    let source = "
+(defsrc a)
+(deflayer base @a)
+(defalias a (tap-hold 200 200 a lctl (require-prior-idle 0)))
+";
+    parse_cfg(source)
+        .map_err(|e| eprintln!("{:?}", miette::Error::from(e)))
+        .expect("passes");
+}
+
+#[test]
+fn per_action_require_prior_idle_rejects_non_numeric() {
+    let source = "
+(defsrc a)
+(deflayer base @a)
+(defalias a (tap-hold 200 200 a lctl (require-prior-idle nope)))
+";
+    parse_cfg(source).map(|_| ()).expect_err("fails");
+}
+
+#[test]
+fn per_action_require_prior_idle_rejects_unknown_option() {
+    let source = "
+(defsrc a)
+(deflayer base @a)
+(defalias a (tap-hold 200 200 a lctl (unknown-option 100)))
+";
+    parse_cfg(source).map(|_| ()).expect_err("fails");
+}
+
+#[test]
+fn per_action_require_prior_idle_rejects_duplicate() {
+    let source = "
+(defsrc a)
+(deflayer base @a)
+(defalias a (tap-hold 200 200 a lctl (require-prior-idle 100) (require-prior-idle 50)))
+";
+    parse_cfg(source).map(|_| ()).expect_err("fails");
+}
+
+#[test]
+fn per_action_require_prior_idle_on_tap_hold_press() {
+    let source = "
+(defsrc a)
+(deflayer base @a)
+(defalias a (tap-hold-press 200 200 a lctl (require-prior-idle 100)))
+";
+    parse_cfg(source)
+        .map_err(|e| eprintln!("{:?}", miette::Error::from(e)))
+        .expect("passes");
+}
+
+#[test]
+fn per_action_require_prior_idle_on_tap_hold_release() {
+    let source = "
+(defsrc a)
+(deflayer base @a)
+(defalias a (tap-hold-release 200 200 a lctl (require-prior-idle 100)))
+";
+    parse_cfg(source)
+        .map_err(|e| eprintln!("{:?}", miette::Error::from(e)))
+        .expect("passes");
+}
