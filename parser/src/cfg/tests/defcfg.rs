@@ -192,9 +192,7 @@ fn per_action_require_prior_idle_rejects_non_numeric() {
 (deflayer base @a)
 (defalias a (tap-hold 200 200 a lctl (require-prior-idle nope)))
 ";
-    parse_cfg(source)
-        .map(|_| ())
-        .expect_err("fails");
+    parse_cfg(source).map(|_| ()).expect_err("fails");
 }
 
 #[test]
@@ -204,9 +202,7 @@ fn per_action_require_prior_idle_rejects_unknown_option() {
 (deflayer base @a)
 (defalias a (tap-hold 200 200 a lctl (unknown-option 100)))
 ";
-    parse_cfg(source)
-        .map(|_| ())
-        .expect_err("fails");
+    parse_cfg(source).map(|_| ()).expect_err("fails");
 }
 
 #[test]
@@ -216,9 +212,7 @@ fn per_action_require_prior_idle_rejects_duplicate() {
 (deflayer base @a)
 (defalias a (tap-hold 200 200 a lctl (require-prior-idle 100) (require-prior-idle 50)))
 ";
-    parse_cfg(source)
-        .map(|_| ())
-        .expect_err("fails");
+    parse_cfg(source).map(|_| ()).expect_err("fails");
 }
 
 #[test]

@@ -1,8 +1,8 @@
 use super::*;
 
+use crate::anyhow_expr;
 use crate::bail;
 use crate::bail_expr;
-use crate::anyhow_expr;
 
 /// Options that can be specified as trailing `(keyword value)` lists on any tap-hold action.
 #[derive(Default)]
@@ -41,8 +41,7 @@ fn parse_tap_hold_options(option_exprs: &[SExpr], s: &ParserState) -> Result<Tap
                         `(require-prior-idle <ms>)`"
                     );
                 }
-                opts.require_prior_idle =
-                    Some(parse_u16(&option[1], s, "require-prior-idle")?);
+                opts.require_prior_idle = Some(parse_u16(&option[1], s, "require-prior-idle")?);
                 seen_require_prior_idle = true;
             }
             _ => bail_expr!(

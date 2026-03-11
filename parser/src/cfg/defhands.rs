@@ -184,8 +184,7 @@ pub(super) fn parse_tap_hold_opposite_hand(
                         `(require-prior-idle <ms>)`"
                     );
                 }
-                require_prior_idle =
-                    Some(parse_u16(&option[1], s, "require-prior-idle")?);
+                require_prior_idle = Some(parse_u16(&option[1], s, "require-prior-idle")?);
             }
             _ => bail_expr!(
                 &option[0],
