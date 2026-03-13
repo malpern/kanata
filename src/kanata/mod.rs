@@ -56,7 +56,10 @@ fn collect_and_sort_events(
     }
 }
 
-#[cfg(feature = "passthru_ahk")]
+#[cfg(any(
+    feature = "passthru_ahk",
+    all(feature = "simulated_input", feature = "simulated_output")
+))]
 use std::sync::mpsc::Sender as ASender;
 
 use kanata_keyberon::action::ReleasableState;
@@ -702,7 +705,10 @@ impl Kanata {
         })
     }
 
-    #[cfg(feature = "passthru_ahk")]
+    #[cfg(any(
+        feature = "passthru_ahk",
+        all(feature = "simulated_input", feature = "simulated_output")
+    ))]
     pub fn new_with_output_channel(
         args: &ValidatedArgs,
         tx: Option<ASender<InputEvent>>,
@@ -840,9 +846,15 @@ impl Kanata {
         Ok(())
     }
 
-    /// Update keyberon layout state for press/release, handle repeat separately
+    /// Update keyberon layout state for press/release, handle repeat separately.
+    ///
+    /// Note: `current_device` is set here per-event and may be stale when switch actions
+    /// evaluate later (e.g. inside tap-hold's WaitingState resolution from `tick()`).
+    /// This is a known limitation — per-device tap-hold behavior requires a deeper change
+    /// to thread device identity through keyberon's internal state machine.
     pub fn handle_input_event(&mut self, event: &KeyEvent) -> Result<()> {
         log::debug!("process recv ev {event:?}");
+        self.layout.bm().current_device = Some(event.device_index);
         let evc: u16 = event.code.into();
         self.ticks_since_idle = 0;
         let kbrn_ev = match event.value {
@@ -2784,7 +2796,11 @@ mod collect_and_sort_events_tests {
     use std::sync::mpsc::sync_channel;
 
     fn make_event(code: OsCode, value: KeyValue) -> KeyEvent {
-        KeyEvent { code, value }
+        KeyEvent {
+            code,
+            value,
+            device_index: 0,
+        }
     }
 
     #[test]
