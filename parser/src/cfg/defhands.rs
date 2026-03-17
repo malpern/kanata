@@ -177,14 +177,11 @@ pub(super) fn parse_tap_hold_opposite_hand(
                 neutral_keys = parse_key_atoms(&option[1..], s, "neutral-keys")?;
             }
             "require-prior-idle" => {
-                if option.len() != 2 {
-                    bail_expr!(
-                        option_expr,
-                        "require-prior-idle option expects exactly 2 items: \
-                        `(require-prior-idle <ms>)`"
-                    );
-                }
-                require_prior_idle = Some(parse_u16(&option[1], s, "require-prior-idle")?);
+                require_prior_idle = Some(tap_hold::parse_require_prior_idle_option(
+                    option,
+                    option_expr,
+                    s,
+                )?);
             }
             _ => bail_expr!(
                 &option[0],

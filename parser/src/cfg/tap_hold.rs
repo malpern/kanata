@@ -6,15 +6,35 @@ use crate::bail_expr;
 
 /// Options that can be specified as trailing `(keyword value)` lists on any tap-hold action.
 #[derive(Default)]
-struct TapHoldOptions {
-    require_prior_idle: Option<u16>,
+pub(crate) struct TapHoldOptions {
+    pub(crate) require_prior_idle: Option<u16>,
+}
+
+/// Parse the value of a `(require-prior-idle <ms>)` option list.
+/// Validates that the list has exactly 2 items and the value is a u16.
+pub(crate) fn parse_require_prior_idle_option(
+    option: &[SExpr],
+    option_expr: &SExpr,
+    s: &ParserState,
+) -> Result<u16> {
+    if option.len() != 2 {
+        bail_expr!(
+            option_expr,
+            "require-prior-idle option expects exactly 2 items: \
+            `(require-prior-idle <ms>)`"
+        );
+    }
+    parse_u16(&option[1], s, "require-prior-idle")
 }
 
 /// Parse trailing `(keyword value)` option lists from tap-hold action parameters.
 /// Returns the parsed options. Errors on unknown or duplicate options.
-fn parse_tap_hold_options(option_exprs: &[SExpr], s: &ParserState) -> Result<TapHoldOptions> {
+pub(crate) fn parse_tap_hold_options(
+    option_exprs: &[SExpr],
+    s: &ParserState,
+) -> Result<TapHoldOptions> {
     let mut opts = TapHoldOptions::default();
-    let mut seen_require_prior_idle = false;
+    let mut seen_options: HashSet<&str> = HashSet::default();
 
     for option_expr in option_exprs {
         let Some(option) = option_expr.list(s.vars()) else {
@@ -29,20 +49,13 @@ fn parse_tap_hold_options(option_exprs: &[SExpr], s: &ParserState) -> Result<Tap
         let kw = option[0]
             .atom(s.vars())
             .ok_or_else(|| anyhow_expr!(&option[0], "option name must be a string"))?;
+        if !seen_options.insert(kw) {
+            bail_expr!(&option[0], "duplicate option '{}'", kw);
+        }
         match kw {
             "require-prior-idle" => {
-                if seen_require_prior_idle {
-                    bail_expr!(&option[0], "duplicate option 'require-prior-idle'");
-                }
-                if option.len() != 2 {
-                    bail_expr!(
-                        option_expr,
-                        "require-prior-idle option expects exactly 2 items: \
-                        `(require-prior-idle <ms>)`"
-                    );
-                }
-                opts.require_prior_idle = Some(parse_u16(&option[1], s, "require-prior-idle")?);
-                seen_require_prior_idle = true;
+                opts.require_prior_idle =
+                    Some(parse_require_prior_idle_option(option, option_expr, s)?);
             }
             _ => bail_expr!(
                 &option[0],
@@ -98,7 +111,7 @@ Params in order:
     if matches!(tap_action, Action::HoldTap { .. }) {
         bail!("tap-hold does not work in the tap-action of tap-hold")
     }
-    let opts = parse_tap_hold_options(&ac_params[4..], s)?;
+    let opts = parse_tap_hold_options(&ac_params[n_positional..], s)?;
     Ok(s.a.sref(Action::HoldTap(s.a.sref(HoldTapAction {
         config,
         tap_hold_interval: tap_repress_timeout,
@@ -175,6 +188,40 @@ pub(crate) fn parse_tap_hold_timeout(
     }))))
 }
 
+pub(crate) fn parse_tap_hold_order(
+    ac_params: &[SExpr],
+    s: &ParserState,
+) -> Result<&'static KanataAction> {
+    let n_opts = count_trailing_options(ac_params, s);
+    let n_positional = ac_params.len() - n_opts;
+    if n_positional != 4 {
+        bail!(
+            r"tap-hold-order expects 4 items after it, got {}.
+Params in order:
+<tap-repress-timeout> <buffer-ms> <tap-action> <hold-action>",
+            n_positional,
+        )
+    }
+    let tap_repress_timeout = parse_u16(&ac_params[0], s, "tap repress timeout")?;
+    let buffer = parse_u16(&ac_params[1], s, "buffer")?;
+    let tap_action = parse_action(&ac_params[2], s)?;
+    let hold_action = parse_action(&ac_params[3], s)?;
+    if matches!(tap_action, Action::HoldTap { .. }) {
+        bail!("tap-hold does not work in the tap-action of tap-hold")
+    }
+    let opts = parse_tap_hold_options(&ac_params[n_positional..], s)?;
+    Ok(s.a.sref(Action::HoldTap(s.a.sref(HoldTapAction {
+        config: HoldTapConfig::Order { buffer },
+        tap_hold_interval: tap_repress_timeout,
+        timeout: u16::MAX, // Resolution is purely event-driven, not timeout-based.
+        tap: *tap_action,
+        hold: *hold_action,
+        timeout_action: *tap_action,
+        on_press_reset_timeout_to: None,
+        require_prior_idle: opts.require_prior_idle,
+    }))))
+}
+
 pub(crate) fn parse_tap_hold_keys(
     ac_params: &[SExpr],
     s: &ParserState,
@@ -200,7 +247,7 @@ Params in order:
     if matches!(tap_action, Action::HoldTap { .. }) {
         bail!("tap-hold does not work in the tap-action of tap-hold")
     }
-    let opts = parse_tap_hold_options(&ac_params[5..], s)?;
+    let opts = parse_tap_hold_options(&ac_params[n_positional..], s)?;
     Ok(s.a.sref(Action::HoldTap(s.a.sref(HoldTapAction {
         config: HoldTapConfig::Custom(custom_func(&tap_trigger_keys, &s.a)),
         tap_hold_interval: tap_repress_timeout,
@@ -239,7 +286,7 @@ Params in order:
     if matches!(tap_action, Action::HoldTap { .. }) {
         bail!("tap-hold does not work in the tap-action of tap-hold")
     }
-    let opts = parse_tap_hold_options(&ac_params[6..], s)?;
+    let opts = parse_tap_hold_options(&ac_params[n_positional..], s)?;
     Ok(s.a.sref(Action::HoldTap(s.a.sref(HoldTapAction {
         config: HoldTapConfig::Custom(custom_tap_hold_release_trigger_tap_release(
             &tap_trigger_keys_on_press,
