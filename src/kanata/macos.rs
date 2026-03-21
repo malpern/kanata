@@ -26,9 +26,10 @@ impl Kanata {
         let allow_hardware_repeat = k.allow_hardware_repeat;
         let include_names = k.include_names.clone();
         let exclude_names = k.exclude_names.clone();
+        let continue_if_no_devices = k.continue_if_no_devices;
         drop(k);
 
-        let mut kb = match KbdIn::new(include_names, exclude_names) {
+        let mut kb = match KbdIn::new(include_names, exclude_names, continue_if_no_devices) {
             Ok(kbd_in) => kbd_in,
             Err(e) => bail!("failed to open keyboard device(s): {}", e),
         };
