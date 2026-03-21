@@ -70,6 +70,7 @@ impl KbdIn {
     pub fn new(
         include_names: Option<Vec<String>>,
         exclude_names: Option<Vec<String>>,
+        continue_if_no_devices: bool,
     ) -> Result<Self, anyhow::Error> {
         if !driver_activated() {
             return Err(anyhow!(
@@ -79,8 +80,9 @@ impl KbdIn {
 
         // Based on the definition of include and exclude names, they should never be used together.
         // Kanata config parser should probably enforce this.
+        let has_device_filter = include_names.is_some() || exclude_names.is_some();
         let device_names = if let Some(included_names) = include_names {
-            validate_and_register_devices(included_names)
+            validate_and_register_devices(included_names, continue_if_no_devices)
         } else if let Some(excluded_names) = exclude_names {
             // get all devices
             let kb_list = fetch_devices();
@@ -99,12 +101,22 @@ impl KbdIn {
                 .collect::<Vec<String>>();
 
             // register the remeining devices
-            validate_and_register_devices(devices_to_include)
+            validate_and_register_devices(devices_to_include, continue_if_no_devices)
         } else {
             vec![]
         };
 
-        if !device_names.is_empty() || register_device("") {
+        // When an include/exclude list is configured but no devices matched,
+        // do NOT fall back to registering all devices. Only use the catch-all
+        // register_device("") when no device filter was specified at all.
+        let should_grab = !device_names.is_empty()
+            || (!has_device_filter && register_device(""))
+            || (continue_if_no_devices && has_device_filter);
+
+        if should_grab {
+            if continue_if_no_devices && device_names.is_empty() && has_device_filter {
+                log::warn!("no matching devices found; waiting for device to connect");
+            }
             if grab() {
                 Ok(Self { grabbed: true })
             } else {
@@ -163,7 +175,10 @@ impl KbdIn {
     }
 }
 
-fn validate_and_register_devices(include_names: Vec<String>) -> Vec<String> {
+fn validate_and_register_devices(
+    include_names: Vec<String>,
+    continue_if_no_devices: bool,
+) -> Vec<String> {
     include_names
         .iter()
         .filter_map(|dev| {
@@ -179,12 +194,20 @@ fn validate_and_register_devices(include_names: Vec<String>) -> Vec<String> {
                 return None;
             }
 
-            match device_matches(dev) {
-                true => Some(dev.to_string()),
-                false => {
-                    log::warn!("'{dev}' doesn't match any connected device");
-                    None
-                }
+            if device_matches(dev) {
+                Some(dev.to_string())
+            } else if continue_if_no_devices {
+                // Device not connected, but register it anyway so driverkit
+                // can auto-capture it via IOKit notifications when it appears.
+                // TODO: name-based register_device is a no-op for disconnected devices
+                // on driverkit <=0.2.1. Switch to hash-based registration once
+                // psych3r/driverkit#17 lands.
+                log::warn!("'{dev}' not connected; will capture when it appears");
+                register_device(dev);
+                None
+            } else {
+                log::warn!("'{dev}' doesn't match any connected device");
+                None
             }
         })
         .filter_map(|dev| {

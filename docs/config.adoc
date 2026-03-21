@@ -4880,6 +4880,29 @@ Use `kanata -l` or `kanata --list` to list the available keyboards.
   )
 )
 ----
+
+[[macos-only-macos-continue-if-no-devs-found]]
+=== macOS only: macos-continue-if-no-devs-found
+
+By default, kanata will exit with an error if no matching input devices are found.
+You can change this behaviour by setting `macos-continue-if-no-devs-found`.
+When enabled, kanata will keep running and automatically capture matching devices
+when they are connected.
+
+This is useful when running multiple kanata instances with
+`macos-dev-names-include`, where an external keyboard may not be connected
+at startup.
+
+.Example:
+[source]
+----
+(defcfg
+  macos-dev-names-include (
+    "External Keyboard"
+  )
+  macos-continue-if-no-devs-found yes
+)
+----
 [[windows-only-windows-altgr]]
 === Windows only: windows-altgr
 
