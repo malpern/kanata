@@ -1,7 +1,11 @@
 ;; Home row mods with tap-hold-require-prior-idle.
 ;;
-;; This replaces the layer-switching workaround in home-row-mod-advanced.kbd
-;; with two native features:
+;; A good intermediate configuration that avoids most misfires without
+;; release-time settlement. For the best experience with release-time
+;; settlement, see home-row-mod-advanced.kbd.
+;; For a simpler starting point, see home-row-mod-basic.kbd.
+;;
+;; This uses two native features:
 ;;
 ;;   tap-hold-require-prior-idle  — during fast typing, tap-hold keys resolve as tap
 ;;                         immediately (no waiting state, no accidental holds)

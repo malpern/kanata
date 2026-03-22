@@ -1,67 +1,75 @@
-;; Home row mods QWERTY example with more complexity.
-;; Some of the changes from the basic example:
-;; - when a home row mod activates tap, the home row mods are disabled
-;;   while continuing to type rapidly
-;; - tap-hold-release helps make the hold action more responsive
-;; - pressing another key on the same half of the keyboard
-;;   as the home row mod will activate an early tap action
+;; Advanced home row mods using tap-hold-opposite-hand-release
 ;;
-;; Suggested further reading:
+;; This is the recommended configuration for users who want reliable
+;; home row mods with minimal misfires. It combines three features:
 ;;
-;; GitHub discussion on more advanced tap-hold improvements:
+;;   tap-hold-require-prior-idle    — during fast typing, tap-hold keys
+;;                                    resolve as tap immediately
+;;   defhands                       — declares which keys belong to each hand
+;;   tap-hold-opposite-hand-release — hold activates only when an opposite-hand
+;;                                    key is pressed AND released; same-hand
+;;                                    rolls always resolve as tap
 ;;
-;;    https://github.com/jtroo/kanata/discussions/1455
+;; The release-time variant waits for the interrupting key to complete its
+;; full press-release cycle before committing. This means fast overlapping
+;; same-hand rolls (like typing "df" quickly) won't misfire as modifiers.
 ;;
-;; Configuration guide documentation on all tap-hold options:
+;; For a simpler starting point, see home-row-mod-basic.kbd.
+;; For an intermediate step without release-time settlement,
+;; see home-row-mod-prior-idle.kbd.
 ;;
-;;    https://github.com/jtroo/kanata/blob/main/docs/config.adoc#tap-hold
+;; Configuration guide:
+;;   https://github.com/jtroo/kanata/blob/main/docs/config.adoc#tap-hold
 
 (defcfg
   process-unmapped-keys yes
+  ;; If any key was pressed within 150ms, resolve tap-hold as tap immediately.
+  ;; Prevents accidental modifier activation during fast typing streaks.
+  tap-hold-require-prior-idle 150
 )
+
 (defsrc
-  a   s   d   f   j   k   l   ;
+  q   w   e   r   t   y   u   i   o   p
+  a   s   d   f   g   h   j   k   l   ;
+  z   x   c   v   b   n   m   ,   .   /
+                  spc
 )
+
+;; Declare which keys belong to each hand.
+;; tap-hold-opposite-hand-release uses this to classify interrupting keys.
+(defhands
+  (left  q w e r t a s d f g z x c v b)
+  (right y u i o p h j k l ; n m , . /))
+
 (defvar
   ;; Note: consider using different time values for your different fingers.
   ;; For example, your pinkies might be slower to release keys and index
   ;; fingers faster.
-  tap-time 200
-  hold-time 150
-
-  left-hand-keys (
-    q w e r t
-    a s d f g
-    z x c v b
-  )
-  right-hand-keys (
-    y u i o p
-    h j k l ;
-    n m , . /
-  )
-)
-(deflayer base
-  @a  @s  @d  @f  @j  @k  @l  @;
+  hold-time 200
 )
 
-(deflayer nomods
-  a   s   d   f   j   k   l   ;
-)
-(deffakekeys
-  to-base (layer-switch base)
-)
 (defalias
-  tap (multi
-    (layer-switch nomods)
-    (on-idle-fakekey to-base tap 20)
-  )
+  a (tap-hold-opposite-hand-release $hold-time a lmet
+    (same-hand tap) (unknown-hand hold) (timeout hold))
+  s (tap-hold-opposite-hand-release $hold-time s lalt
+    (same-hand tap) (unknown-hand hold) (timeout hold))
+  d (tap-hold-opposite-hand-release $hold-time d lctl
+    (same-hand tap) (unknown-hand hold) (timeout hold))
+  f (tap-hold-opposite-hand-release $hold-time f lsft
+    (same-hand tap) (unknown-hand hold) (timeout hold))
+  j (tap-hold-opposite-hand-release $hold-time j rsft
+    (same-hand tap) (unknown-hand hold) (timeout hold))
+  k (tap-hold-opposite-hand-release $hold-time k rctl
+    (same-hand tap) (unknown-hand hold) (timeout hold))
+  l (tap-hold-opposite-hand-release $hold-time l ralt
+    (same-hand tap) (unknown-hand hold) (timeout hold))
+  ; (tap-hold-opposite-hand-release $hold-time ; rmet
+    (same-hand tap) (unknown-hand hold) (timeout hold))
+)
 
-  a (tap-hold-release-keys $tap-time $hold-time (multi a @tap) lmet $left-hand-keys)
-  s (tap-hold-release-keys $tap-time $hold-time (multi s @tap) lalt $left-hand-keys)
-  d (tap-hold-release-keys $tap-time $hold-time (multi d @tap) lctl $left-hand-keys)
-  f (tap-hold-release-keys $tap-time $hold-time (multi f @tap) lsft $left-hand-keys)
-  j (tap-hold-release-keys $tap-time $hold-time (multi j @tap) rsft $right-hand-keys)
-  k (tap-hold-release-keys $tap-time $hold-time (multi k @tap) rctl $right-hand-keys)
-  l (tap-hold-release-keys $tap-time $hold-time (multi l @tap) ralt $right-hand-keys)
-  ; (tap-hold-release-keys $tap-time $hold-time (multi ; @tap) rmet $right-hand-keys)
+(deflayer base
+  q   w   e   r   t   y   u   i   o   p
+  @a  @s  @d  @f  g   h   @j  @k  @l  @;
+  z   x   c   v   b   n   m   ,   .   /
+                  spc
 )

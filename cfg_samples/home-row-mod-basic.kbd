@@ -1,6 +1,8 @@
-;; Basic home row mods example using QWERTY
-;; For a more complex but perhaps usable configuration,
-;; see home-row-mod-advanced.kbd
+;; Basic home row mods example using QWERTY.
+;;
+;; This is the simplest starting point for home row mods.
+;; For fewer misfires during fast typing, see home-row-mod-prior-idle.kbd.
+;; For the best experience, see home-row-mod-advanced.kbd.
 
 (defcfg
   process-unmapped-keys yes
