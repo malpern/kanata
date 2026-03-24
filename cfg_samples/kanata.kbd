@@ -469,6 +469,13 @@ If you need help, please feel welcome to ask in the GitHub discussions.
 (defalias
   th1 (tap-hold $tt $ht caps lctl)
   th2 (tap-hold $tt $ht spc lsft)
+
+  ;; tap-hold-opposite-hand-release is a release-time variant of
+  ;; tap-hold-opposite-hand. It waits for the interrupting key to be pressed
+  ;; AND released before deciding, which avoids misfires on fast same-hand
+  ;; rolls. Requires defhands.
+  ;; actl (tap-hold-opposite-hand-release 200 a lctl
+  ;;   (same-hand tap) (unknown-hand hold) (timeout hold))
 )
 
 ;; defalias is used to declare a shortcut for a more complicated action to keep
@@ -569,6 +576,17 @@ If you need help, please feel welcome to ask in the GitHub discussions.
   ;; Unlike tap-hold-release-keys, other keys do NOT trigger early hold.
   ;; This is useful for home row mods where fast typing should not trigger modifiers.
   utk (tap-hold-tap-keys 200 200 u @msc (a o e))
+
+  ;; tap-hold-keys is a flexible tap-hold with named key list options.
+  ;; tap: u    hold: misc layer
+  ;; (tap-on-press a o e)         — tap immediately if a, o, or e are pressed
+  ;; (tap-on-press-release ' , .) — tap if ', ,, or . are pressed then released
+  ;; (hold-on-press 1 2 3)        — hold immediately if 1, 2, or 3 are pressed
+  ;; All list options are optional. Unlisted keys use PermissiveHold behavior.
+  uthk (tap-hold-keys 200 200 u @msc
+    (tap-on-press a o e)
+    (tap-on-press-release ' , .)
+    (hold-on-press 1 2 3))
 
   ;; tap-hold-order resolves by release order instead of timeout.
   ;; tap: a    hold: lctl    buffer: 50ms (fast typing grace period)

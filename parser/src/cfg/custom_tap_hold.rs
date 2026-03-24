@@ -149,6 +149,68 @@ pub(crate) fn custom_tap_hold_release_trigger_tap_release(
     )
 }
 
+/// Returns a closure for `tap-hold-keys` with three optional key lists:
+/// - `keys_tap_on_press`: trigger tap immediately on press
+/// - `keys_tap_on_press_release`: trigger tap when pressed then released
+/// - `keys_hold_on_press`: trigger hold immediately on press
+///
+/// For any other key, falls back to PermissiveHold behavior.
+///
+/// Priority when a key appears in multiple lists (checked in order):
+/// tap-on-press > hold-on-press > tap-on-press-release > PermissiveHold
+pub(crate) fn custom_tap_hold_keys(
+    keys_tap_on_press: &[OsCode],
+    keys_tap_on_press_release: &[OsCode],
+    keys_hold_on_press: &[OsCode],
+    a: &Allocations,
+) -> &'static CustomTapHoldFn {
+    let keys_tap_on_press = a.sref_vec(keys_tap_on_press.iter().copied().map(u16::from).collect());
+    let keys_tap_on_press_release = a.sref_vec(
+        keys_tap_on_press_release
+            .iter()
+            .copied()
+            .map(u16::from)
+            .collect(),
+    );
+    let keys_hold_on_press =
+        a.sref_vec(keys_hold_on_press.iter().copied().map(u16::from).collect());
+    a.sref(
+        move |mut queued: QueuedIter, _coord: KCoord| -> (Option<WaitingAction>, bool) {
+            while let Some(q) = queued.next() {
+                if q.event().is_press() {
+                    let (i, j) = q.event().coord();
+                    if i != REAL_KEY_ROW {
+                        continue;
+                    }
+                    // If key is in tap-on-press list, trigger tap immediately.
+                    if keys_tap_on_press.iter().copied().any(|j2| j2 == j) {
+                        return (Some(WaitingAction::Tap), false);
+                    }
+                    // If key is in hold-on-press list, trigger hold immediately.
+                    if keys_hold_on_press.iter().copied().any(|j2| j2 == j) {
+                        return (Some(WaitingAction::Hold), false);
+                    }
+                    // If key is in tap-on-press-release list and has been released,
+                    // trigger tap.
+                    if keys_tap_on_press_release.iter().copied().any(|j2| j2 == j) {
+                        let target = Event::Release(i, j);
+                        if queued.clone().copied().any(|q| q.event() == target) {
+                            return (Some(WaitingAction::Tap), false);
+                        }
+                    }
+                    // Otherwise do the PermissiveHold algorithm:
+                    // if another key was pressed and released, trigger hold.
+                    let target = Event::Release(i, j);
+                    if queued.clone().copied().any(|q| q.event() == target) {
+                        return (Some(WaitingAction::Hold), false);
+                    }
+                }
+            }
+            (None, false)
+        },
+    )
+}
+
 pub(crate) fn custom_tap_hold_except(keys: &[OsCode], a: &Allocations) -> &'static CustomTapHoldFn {
     let keys = a.sref_vec(Vec::from_iter(keys.iter().copied()));
     a.sref(
@@ -305,6 +367,74 @@ pub(crate) fn custom_tap_hold_opposite_hand(
                 }
             }
             (None, false, None)
+        },
+    )
+}
+
+/// Like `custom_tap_hold_opposite_hand` but waits for the interrupting key's
+/// press+release before committing. This avoids misfires on fast same-hand
+/// rolls where keystrokes briefly overlap.
+pub(crate) fn custom_tap_hold_opposite_hand_release(
+    hand_map: &'static HandMap,
+    same_hand: DecisionBehavior,
+    neutral_behavior: DecisionBehavior,
+    unknown_hand: DecisionBehavior,
+    neutral_keys: &'static [OsCode],
+    a: &Allocations,
+) -> &'static CustomTapHoldFn {
+    a.sref(
+        move |mut queued: QueuedIter, coord: KCoord| -> (Option<WaitingAction>, bool) {
+            let (_row, col) = coord;
+            let waiting_hand = hand_map.get(col);
+
+            while let Some(q) = queued.next() {
+                if !q.event().is_press() {
+                    continue;
+                }
+                let (i, j) = q.event().coord();
+                if i != REAL_KEY_ROW {
+                    continue;
+                }
+
+                // Wait for the interrupting key's release before deciding.
+                let release = Event::Release(i, j);
+                if !queued.clone().copied().any(|q| q.event() == release) {
+                    continue;
+                }
+
+                // Check neutral-keys first (takes precedence over defhands)
+                if let Some(osc) = OsCode::from_u16(j) {
+                    if neutral_keys.contains(&osc) {
+                        match neutral_behavior {
+                            DecisionBehavior::Tap => return (Some(WaitingAction::Tap), false),
+                            DecisionBehavior::Hold => return (Some(WaitingAction::Hold), false),
+                            DecisionBehavior::Ignore => continue,
+                        }
+                    }
+                }
+
+                let pressed_hand = hand_map.get(j);
+
+                match (waiting_hand, pressed_hand) {
+                    (Hand::Left, Hand::Right) | (Hand::Right, Hand::Left) => {
+                        return (Some(WaitingAction::Hold), false);
+                    }
+                    (Hand::Left, Hand::Left) | (Hand::Right, Hand::Right) => match same_hand {
+                        DecisionBehavior::Tap => return (Some(WaitingAction::Tap), false),
+                        DecisionBehavior::Hold => return (Some(WaitingAction::Hold), false),
+                        DecisionBehavior::Ignore => continue,
+                    },
+                    _ => {
+                        // At least one key is Neutral (not in defhands)
+                        match unknown_hand {
+                            DecisionBehavior::Tap => return (Some(WaitingAction::Tap), false),
+                            DecisionBehavior::Hold => return (Some(WaitingAction::Hold), false),
+                            DecisionBehavior::Ignore => continue,
+                        }
+                    }
+                }
+            }
+            (None, false)
         },
     )
 }
