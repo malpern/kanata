@@ -1,9 +1,11 @@
-;; Home row mods using tap-hold-opposite-hand
+;; Home row mods using tap-hold-opposite-hand (press-time variant).
 ;;
 ;; Hold activates only when the next key is on the opposite hand,
 ;; which substantially reduces misfires during fast same-hand rolls.
 ;; Same-hand keys resolve as tap by default.
 ;;
+;; For improved accuracy with release-time settlement,
+;; see home-row-mod-advanced.kbd.
 ;; Compare with home-row-mod-basic.kbd which uses plain tap-hold.
 
 (defcfg
