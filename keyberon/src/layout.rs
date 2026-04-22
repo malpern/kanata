@@ -5462,6 +5462,7 @@ mod test {
                 config: HoldTapConfig::Custom(&custom_tap),
                 tap_hold_interval: 0,
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
             }),
             k(A),
         ]]];
@@ -5474,6 +5475,7 @@ mod test {
                 config: HoldTapConfig::Custom(&custom_hold),
                 tap_hold_interval: 0,
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
             }),
             k(A),
         ]]];
@@ -5486,6 +5488,7 @@ mod test {
                 config: HoldTapConfig::Custom(&custom_hold_with_reason),
                 tap_hold_interval: 0,
                 on_press_reset_timeout_to: None,
+                require_prior_idle: None,
             }),
             k(A),
         ]]];
