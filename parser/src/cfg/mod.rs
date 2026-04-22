@@ -247,13 +247,12 @@ impl<'a> FileContentProvider<'a> {
     }
 }
 
-pub type KanataCustom = &'static &'static [&'static CustomAction];
 pub type KanataAction = Action<'static, KanataCustom>;
 type KLayout = Layout<'static, KEYS_IN_ROW, 2, KanataCustom>;
 
 type TapHoldCustomFunc = fn(&[OsCode], &Allocations) -> &'static custom_tap_hold::CustomTapHoldFn;
 
-pub type BorrowedKLayout<'a> = Layout<'a, KEYS_IN_ROW, 2, &'a &'a [&'a CustomAction]>;
+pub type BorrowedKLayout<'a> = Layout<'a, KEYS_IN_ROW, 2, &'a CustomAction>;
 pub type KeySeqsToFKeys = Trie<(u8, u16)>;
 
 pub struct KanataLayout {
@@ -303,7 +302,7 @@ pub struct Cfg {
     /// Mapping of fake key name to its column in the fake key row.
     pub fake_keys: HashMap<String, usize>,
     /// The maximum value of switch's key-timing item in the configuration.
-    pub switch_max_key_timing: u16,
+    pub max_key_timing_check: u16,
     /// Zipchord-like configuration.
     pub zippy: Option<(ZchPossibleChords, ZchConfig)>,
 }
@@ -354,7 +353,10 @@ fn parse_cfg(p: &Path) -> MResult<Cfg> {
 fn populate_cfg_with_icfg(icfg: IntermediateCfg, s: ParserState) -> Cfg {
     let (layers, allocations) = icfg.klayers.get();
     let key_outputs = create_key_outputs(&layers, &icfg.overrides, &icfg.chords_v2);
-    let switch_max_key_timing = s.switch_max_key_timing.get();
+    let max_key_timing_check = std::cmp::max(
+        s.max_key_timing_check.get(),
+        icfg.options.tap_hold_require_prior_idle,
+    );
     let mut layout = KanataLayout::new(
         Layout::new_with_trans_action_settings(
             s.a.sref(s.defsrc_layer),
@@ -389,7 +391,7 @@ fn populate_cfg_with_icfg(icfg: IntermediateCfg, s: ParserState) -> Cfg {
         sequences: icfg.sequences,
         overrides: icfg.overrides,
         fake_keys,
-        switch_max_key_timing,
+        max_key_timing_check,
         zippy: icfg.zippy,
     }
 }
@@ -753,6 +755,7 @@ pub fn parse_cfg_raw_string(
         block_unmapped_keys: cfg.block_unmapped_keys,
         lsp_hints: RefCell::new(lsp_hints),
         vars,
+        max_key_timing_check: Cell::new(cfg.rapid_event_delay),
         ..Default::default()
     };
 
@@ -1138,7 +1141,7 @@ pub struct ParserState {
     default_sequence_timeout: u16,
     default_sequence_input_mode: SequenceInputMode,
     block_unmapped_keys: bool,
-    switch_max_key_timing: Cell<u16>,
+    max_key_timing_check: Cell<u16>,
     multi_action_nest_count: Cell<u16>,
     pctx: ParserContext,
     pub lsp_hints: RefCell<LspHints>,
@@ -1170,7 +1173,7 @@ impl Default for ParserState {
             default_sequence_timeout: default_cfg.sequence_timeout,
             default_sequence_input_mode: default_cfg.sequence_input_mode,
             block_unmapped_keys: default_cfg.block_unmapped_keys,
-            switch_max_key_timing: Cell::new(0),
+            max_key_timing_check: Cell::new(0),
             multi_action_nest_count: Cell::new(0),
             lsp_hints: Default::default(),
             hand_map: None,
@@ -1332,7 +1335,7 @@ fn parse_action(expr: &SExpr, s: &ParserState) -> Result<&'static KanataAction> 
 
 /// Returns a single custom action in the proper wrapped type.
 fn custom(ca: CustomAction, a: &Allocations) -> Result<&'static KanataAction> {
-    Ok(a.sref(Action::Custom(a.sref(a.sref_slice(ca)))))
+    Ok(a.sref(Action::Custom(a.sref(ca))))
 }
 
 /// Parse a `kanata_keyberon::action::Action` from a string.

@@ -123,10 +123,13 @@ pub fn replace_custom_str_oscode_mapping(mapping: &HashMap<String, OsCode>) {
     local_mapping.shrink_to_fit();
 }
 
-/// Clears the stateful custom `String` to `OsCode` mapping in this module.
+/// Clears the stateful custom `String` to `OsCode` mapping in this module, restoring only the
+/// default mappings. Defaults are restored under the same lock as the clear so that concurrent
+/// `str_to_oscode` callers never observe a window in which the default mappings are absent.
 pub fn clear_custom_str_oscode_mapping() {
     let mut local_mapping = CUSTOM_STRS_TO_OSCODES.lock();
     local_mapping.clear();
+    add_default_str_osc_mappings(&mut local_mapping);
     local_mapping.shrink_to_fit();
 }
 
@@ -251,6 +254,11 @@ pub fn str_to_oscode(s: &str) -> Option<OsCode> {
         "ssrq" | "sys" => OsCode::KEY_SYSRQ,
         // Typically the Non-US backslash, near the left shift key
         "IntlBackslash" | "102d" | "lsgt" | "nubs" | "nonusbslash" | "﹨" | "<" => OsCode::KEY_102ND,
+        // ISO "#" key to the left of Enter (USB HID page 7 usage 0x32, "Non-US # and ~").
+        // Distinct HID usage on macOS; folded onto Backslash by Linux evdev, so the name
+        // is gated to platforms where the physical key can actually produce it. See #1915.
+        #[cfg(any(target_os = "macos", target_os = "unknown"))]
+        "NonUSPound" | "non_us_pound" | "nuhs" => OsCode::KEY_NUMERIC_POUND,
         "ScrollLock" | "scrlck" | "slck" | "⇳🔒" => OsCode::KEY_SCROLLLOCK,
         "Pause" | "pause" | "break" | "brk" => OsCode::KEY_PAUSE,
         "WakeUp" | "wkup" => OsCode::KEY_WAKEUP,

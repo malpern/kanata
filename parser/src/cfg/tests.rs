@@ -424,19 +424,21 @@ fn recursive_multi_is_flattened() {
     ];
     let s = ParserState::default();
     if let KanataAction::MultipleActions(parsed_multi) = parse_multi(&params, &s).unwrap() {
-        assert_eq!(parsed_multi.len(), 4);
+        assert_eq!(parsed_multi.len(), 6);
         assert_eq!(parsed_multi[0], Action::KeyCode(KeyCode::A));
-        assert_eq!(parsed_multi[1], Action::KeyCode(KeyCode::B));
-        assert_eq!(parsed_multi[2], Action::KeyCode(KeyCode::C));
+        assert_eq!(parsed_multi[2], Action::KeyCode(KeyCode::B));
+        assert_eq!(parsed_multi[4], Action::KeyCode(KeyCode::C));
+        assert_eq!(
+            parsed_multi[1],
+            Action::Custom(&CustomAction::MouseTap(Btn::Mid))
+        );
         assert_eq!(
             parsed_multi[3],
-            Action::Custom(
-                &&[
-                    &CustomAction::MouseTap(Btn::Mid),
-                    &CustomAction::MouseTap(Btn::Left),
-                    &CustomAction::MouseTap(Btn::Right),
-                ][..]
-            )
+            Action::Custom(&CustomAction::MouseTap(Btn::Left))
+        );
+        assert_eq!(
+            parsed_multi[5],
+            Action::Custom(&CustomAction::MouseTap(Btn::Right))
         );
     } else {
         panic!("multi did not parse into multi");
@@ -935,43 +937,31 @@ fn parse_virtualkeys() {
     let (klayers, _) = res.klayers.get();
     assert_eq!(
         klayers[0][0][OsCode::KEY_A.as_u16() as usize],
-        Action::Custom(
-            &[&CustomAction::FakeKey {
-                coord: Coord { x: 1, y: 0 },
-                action: FakeKeyAction::Press,
-            }]
-            .as_ref()
-        ),
+        Action::Custom(&CustomAction::FakeKey {
+            coord: Coord { x: 1, y: 0 },
+            action: FakeKeyAction::Press,
+        }),
     );
     assert_eq!(
         klayers[0][0][OsCode::KEY_F.as_u16() as usize],
-        Action::Custom(
-            &[&CustomAction::FakeKey {
-                coord: Coord { x: 1, y: 1 },
-                action: FakeKeyAction::Release,
-            }]
-            .as_ref()
-        ),
+        Action::Custom(&CustomAction::FakeKey {
+            coord: Coord { x: 1, y: 1 },
+            action: FakeKeyAction::Release,
+        }),
     );
     assert_eq!(
         klayers[0][0][OsCode::KEY_K.as_u16() as usize],
-        Action::Custom(
-            &[&CustomAction::FakeKeyOnRelease {
-                coord: Coord { x: 1, y: 0 },
-                action: FakeKeyAction::Toggle,
-            }]
-            .as_ref()
-        ),
+        Action::Custom(&CustomAction::FakeKeyOnRelease {
+            coord: Coord { x: 1, y: 0 },
+            action: FakeKeyAction::Toggle,
+        }),
     );
     assert_eq!(
         klayers[0][0][OsCode::KEY_P.as_u16() as usize],
-        Action::Custom(
-            &[&CustomAction::FakeKeyOnRelease {
-                coord: Coord { x: 1, y: 1 },
-                action: FakeKeyAction::Tap,
-            }]
-            .as_ref()
-        ),
+        Action::Custom(&CustomAction::FakeKeyOnRelease {
+            coord: Coord { x: 1, y: 1 },
+            action: FakeKeyAction::Tap,
+        }),
     );
 }
 
@@ -1000,14 +990,11 @@ fn parse_on_idle_fakekey() {
     let (klayers, _) = res.klayers.get();
     assert_eq!(
         klayers[0][0][OsCode::KEY_A.as_u16() as usize],
-        Action::Custom(
-            &[&CustomAction::FakeKeyOnIdle(FakeKeyOnIdle {
-                coord: Coord { x: 1, y: 0 },
-                action: FakeKeyAction::Tap,
-                idle_duration: 200
-            })]
-            .as_ref()
-        ),
+        Action::Custom(&CustomAction::FakeKeyOnIdle(FakeKeyOnIdle {
+            coord: Coord { x: 1, y: 0 },
+            action: FakeKeyAction::Tap,
+            idle_duration: 200
+        })),
     );
 }
 
@@ -2110,4 +2097,32 @@ fn parse_clipboard_actions() {
 )
 ";
     parse_cfg(source).map(|_| ()).expect("success");
+}
+
+/// `mouse-movement-key` parses on every platform that supports the feature
+/// (Linux, Android, macOS, Windows-interception, unknown). Regression guard
+/// for the macOS cfg gate previously omitting `target_os = "macos"`, which
+/// caused the option to fail with "Unknown defcfg option" on macOS.
+#[cfg(any(
+    all(target_os = "windows", feature = "interception_driver"),
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "unknown"
+))]
+#[test]
+fn parse_mouse_movement_key() {
+    let source = "
+(defcfg
+  process-unmapped-keys yes
+  mouse-movement-key mvmt
+)
+(defsrc a mvmt)
+(deflayer base a _)
+";
+    let icfg = parse_cfg(source).expect("parses");
+    assert_eq!(
+        icfg.options.mouse_movement_key,
+        Some(crate::keys::OsCode::KEY_766),
+    );
 }

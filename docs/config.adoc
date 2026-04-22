@@ -390,6 +390,14 @@ or Interception when using key names according to the browser `event.code`.
 The default `kanata.exe` does not do mappings according to the browser `event.code`
 key names.
 
+NOTE: On macOS, the ISO "#" key to the left of Enter reports
+`event.code` as `Backslash` in the browser, but the operating system
+delivers it to kanata as a distinct HID usage that the regular
+`\`/`Backslash` name does not match. Use the name `non_us_pound`
+(aliases: `NonUSPound`, `nuhs`) for that physical key on macOS. If
+you want the same config to work on Linux as well, pair this with
+`deflocalkeys-linux` to map evdev code 43 to the same name.
+
 [[deflocalkeys]]
 === deflocalkeys
 
@@ -1408,7 +1416,7 @@ The mouse button actions are:
 * `mbck`: backward mouse button
 
 The mouse button will be held while the key mapped to it is held.
-Only on Linux and Windows,
+On Linux, Windows, and macOS,
 the above actions are also usable in `defsrc`
 to enable remapping specified mouse actions in your layers,
 like you would with keyboard keys.
@@ -1475,7 +1483,7 @@ to remap scroll events as if they were keys,
 corresponding to up, down, left, right respectively:
 `mwu`, `mwd`, `mwl`, `mwr`.
 
-The remapping of mouse events is only effective on Linux and Windows.
+The remapping of mouse button and wheel events is effective on Linux, Windows, and macOS.
 
 NOTE:
 On Windows, the Kanata process must be restarted
@@ -1483,6 +1491,11 @@ for it to begin or to stop handling mouse events;
 changing defsrc then live-reloading will not
 begin handling mouse events
 if defsrc previously did not have any mouse events in defsrc.
+On macOS, live-reload can install the mouse event tap on the fly
+when a new config introduces mouse keys, but stopping the tap
+once installed still requires a restart.
+Mouse input on macOS requires Accessibility or Input Monitoring
+permission in System Settings > Privacy & Security.
 
 **Description**
 
@@ -4524,7 +4537,7 @@ the swapped "i" and "o" keys.
 ----
 
 [[mouse-movement-key]]
-=== Linux or Windows-interception only: mouse-movement-key
+=== Linux, macOS, or Windows-interception only: mouse-movement-key
 
 Accepts a single key name.
 When configured, whenever a mouse cursor movement is received,
@@ -4547,10 +4560,14 @@ The `mvmt` key name is specially intended for this purpose.  It has no
 output key mapping and cannot be supplied as an action; however, any
 key may be used.
 
-Supports live reload on Linux, but with Windows-interception, this
+Supports live reload on Linux and macOS. With Windows-interception, this
 option must be present on startup to enable mouse movement event
 collection, so restart is required to enable it. Changing the key name
 is always supported, however.
+
+On macOS, this feature uses the same CGEventTap as the existing mouse
+button input support, and so requires the same Accessibility or Input
+Monitoring permission in System Settings > Privacy & Security.
 
 .Example:
 [source]
@@ -5457,6 +5474,24 @@ in case this is an issue impacting you.
 
 List keyboard names that can be used
 within defcfg and then exit.
+
+[[args-macos-release-grab-on-lock]]
+=== macOS only - Release grab on lock / user switch: `--release-grab-on-lock`
+
+By default, kanata's keyboard grab on macOS stays active even when
+the screen is locked or another user takes the console via fast user
+switching. This means anyone else at the keyboard (including you on
+the lock-screen prompt) types through your remap.
+
+Pass `--release-grab-on-lock` to make kanata poll its CGSession state
+and release the grab whenever the screen is locked
+(`CGSSessionScreenIsLocked`) or kanata's session loses the console
+(`kCGSSessionOnConsoleKey == false`). The grab is re-acquired once
+kanata's session is back on the console with the screen unlocked.
+
+This is useful on shared Macs where another user's lock-screen
+password or session should not be remapped. Off by default to
+preserve the historical always-grab behavior for single-user setups.
 
 == Advanced features[[advanced-features]]
 [[virtual-keys]]

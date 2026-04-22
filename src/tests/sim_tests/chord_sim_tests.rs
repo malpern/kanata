@@ -105,13 +105,32 @@ fn sim_chord_overlapping_timeout_v2() {
 }
 
 #[test]
+fn sim_chord_pending_can_still_evaluate_to_individual() {
+    let result = simulate(
+        "
+(defcfg process-unmapped-keys yes
+ concurrent-tap-hold yes)
+(defsrc e f j)
+(deflayermap (layer1))
+(defchordsv2
+ (e f) lctl 5 all-released ()
+ (e f j) lsft 10 all-released ()
+)
+        ",
+        "d:e t:7 d:f t:15",
+    )
+    .to_ascii();
+    assert_eq!("t:11ms dn:E t:1ms dn:F", result);
+}
+
+#[test]
 fn sim_chord_overlapping_release() {
     let result = simulate(
         SIMPLE_OVERLAPPING_CHORD_CFG,
         "d:a d:b t:100 u:a d:z t:300 u:b t:300",
     )
     .to_ascii();
-    assert_eq!("t:100ms dn:C t:301ms up:C t:100ms dn:Z", result);
+    assert_eq!("t:100ms dn:C t:401ms dn:Z t:3ms up:C", result);
 }
 
 #[test]
@@ -121,7 +140,7 @@ fn sim_presses_for_old_chord_repress_into_new_chord() {
         "d:a d:b t:50 u:a t:50 d:z t:50 u:b t:50 d:a d:b t:50 u:a t:50",
     )
     .to_ascii();
-    assert_eq!("t:50ms dn:C t:101ms up:C t:99ms dn:D t:11ms up:D", result);
+    assert_eq!("t:50ms dn:C t:200ms dn:D t:11ms up:C t:1ms up:D", result);
 }
 
 #[test]
@@ -307,8 +326,7 @@ fn sim_chord_eager_tapholdpress_activation() {
     )
     .to_ascii();
     assert_eq!(
-        "t:11ms dn:LCtrl t:7ms dn:BSpace t:92ms \
-         dn:BSpace t:10ms dn:BSpace t:14ms up:BSpace t:96ms up:LCtrl",
+        "t:12ms dn:LCtrl t:7ms dn:BSpace t:91ms dn:BSpace t:10ms dn:BSpace t:15ms up:BSpace t:95ms up:LCtrl",
         result
     );
 }
@@ -342,7 +360,7 @@ fn sim_chord_eager_tapholdrelease_activation() {
     )
     .to_ascii();
     assert_eq!(
-        "t:20ms dn:LCtrl t:7ms dn:BSpace t:5ms up:BSpace t:88ms up:LCtrl",
+        "t:20ms dn:LCtrl t:7ms dn:BSpace t:6ms up:BSpace t:87ms up:LCtrl",
         result
     );
 }
@@ -510,7 +528,7 @@ d:t u:t t:10
     // The key history should unpause, so on pressing `t` again,
     // position 2 is now where bspc is because C was sent.
     assert_eq!(
-        "t:1ms dn:BSpace t:10ms up:BSpace t:10ms dn:C t:1ms up:C t:9ms dn:B t:1ms up:B",
+        "t:1ms dn:BSpace t:10ms up:BSpace t:9ms dn:C t:1ms up:C t:9ms dn:B t:1ms up:B",
         result
     );
 }

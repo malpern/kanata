@@ -301,9 +301,9 @@ dependencies = [
 
 [[package]]
 name = "core-foundation"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b55271e5c8c478ad3f38ad24ef34923091e0548492a266d19b3c0b4d82574c63"
+checksum = "b2a6cd9ae233e7f62ba4e9353e81a88df7fc8a5987b8d445b4d90c879bd156f6"
 dependencies = [
  "core-foundation-sys",
  "libc",
@@ -335,7 +335,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa95a34622365fa5bbf40b20b75dba8dfa8c94c734aea8ac9a5ca38af14316f1"
 dependencies = [
  "bitflags 2.9.1",
- "core-foundation 0.10.0",
+ "core-foundation 0.10.1",
  "core-graphics-types 0.2.0",
  "foreign-types",
  "libc",
@@ -359,7 +359,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d44a101f213f6c4cdc1853d4b78aef6db6bdfa3468798cc1d9912f4735013eb"
 dependencies = [
  "bitflags 2.9.1",
- "core-foundation 0.10.0",
+ "core-foundation 0.10.1",
  "libc",
 ]
 
@@ -407,12 +407,6 @@ dependencies = [
  "redox_users",
  "windows-sys 0.48.0",
 ]
-
-[[package]]
-name = "either"
-version = "1.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60b1af1c220855b6ceac025d3f6ecdd2b7c4894bfe9cd9bda4fbb4bc7c0d4cf0"
 
 [[package]]
 name = "embed-resource"
@@ -691,15 +685,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
-name = "itertools"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
-dependencies = [
- "either",
-]
-
-[[package]]
 name = "itoa"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -732,11 +717,12 @@ dependencies = [
 
 [[package]]
 name = "kanata"
-version = "1.11.0"
+version = "1.12.0-prerelease-2"
 dependencies = [
  "anyhow",
  "arboard",
  "clap",
+ "core-foundation 0.10.1",
  "core-graphics 0.24.0",
  "dirs",
  "embed-resource",
@@ -790,7 +776,7 @@ dependencies = [
 
 [[package]]
 name = "kanata-keyberon"
-version = "0.1110.0"
+version = "0.1120.1"
 dependencies = [
  "arraydeque",
  "heapless",
@@ -810,12 +796,11 @@ dependencies = [
 
 [[package]]
 name = "kanata-parser"
-version = "0.1110.0"
+version = "0.1120.1"
 dependencies = [
  "anyhow",
  "bitflags 2.9.1",
  "bytemuck",
- "itertools",
  "kanata-keyberon",
  "log",
  "miette",
@@ -845,7 +830,7 @@ dependencies = [
 
 [[package]]
 name = "kanata-tcp-protocol"
-version = "0.1110.0"
+version = "0.1120.1"
 dependencies = [
  "serde",
  "serde_derive",
@@ -878,9 +863,9 @@ dependencies = [
 
 [[package]]
 name = "karabiner-driverkit"
-version = "0.2.1"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c900441e9c078ba7c0ffb0a3537475e4ad094e7b6d2e14e2d7b65a7fcfc10ef0"
+checksum = "97e4fc764f78a4a5cbf705c9502a51a0ba4931dbee25f4fbc59654059f6ca9e9"
 dependencies = [
  "cc",
  "os_info",
