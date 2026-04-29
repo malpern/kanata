@@ -52,10 +52,10 @@ impl Kanata {
             let kanata = kanata.lock();
             if !kanata
                 .kbd_out
-                .wait_until_ready(Some(Duration::from_secs(10)))
+                .wait_until_ready(Some(Duration::from_secs(120)))
             {
                 log::warn!(
-                    "output backend not ready after 10s. Key output may fail until the backend recovers."
+                    "output backend not ready after 120s. Key output may fail until the backend recovers."
                 );
             }
         }
