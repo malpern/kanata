@@ -22,6 +22,20 @@ impl Kanata {
     pub fn event_loop(kanata: Arc<Mutex<Self>>, tx: Sender<KeyEvent>) -> Result<()> {
         info!("entering the event loop");
 
+        {
+            let rc = unsafe {
+                libc::pthread_set_qos_class_self_np(
+                    libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE,
+                    0,
+                )
+            };
+            if rc == 0 {
+                info!("macOS: event loop thread QoS set to USER_INTERACTIVE");
+            } else {
+                log::warn!("macOS: failed to set event loop thread QoS (rc={rc})");
+            }
+        }
+
         let k = kanata.lock();
         let allow_hardware_repeat = k.allow_hardware_repeat;
         let include_names = k.include_names.clone();
@@ -37,10 +51,10 @@ impl Kanata {
             let kanata = kanata.lock();
             if !kanata
                 .kbd_out
-                .wait_until_ready(Some(Duration::from_secs(10)))
+                .wait_until_ready(Some(Duration::from_secs(120)))
             {
                 log::warn!(
-                    "output backend not ready after 10s. Key output may fail until the backend recovers."
+                    "output backend not ready after 120s. Key output may fail until the backend recovers."
                 );
             }
         }
