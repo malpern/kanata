@@ -3,6 +3,7 @@
 CLAUDE.md
 .DS_Store
 PLAN.md
+docs/macos-continue-if-no-devs-design.md
 
 # Manual testing files
 test_*.kbd

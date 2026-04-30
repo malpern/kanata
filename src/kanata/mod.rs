@@ -223,8 +223,8 @@ pub struct Kanata {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     /// Linux input paths in the user configuration.
     pub kbd_in_paths: Vec<String>,
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    /// Tracks the Linux user configuration to continue or abort if no devices are found.
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+    /// Tracks the user configuration to continue or abort if no devices are found.
     continue_if_no_devices: bool,
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     /// Tracks the Linux/Macos user configuration for device names (instead of paths) that should be
@@ -481,6 +481,8 @@ impl Kanata {
             include_names: cfg.options.macos_opts.macos_dev_names_include,
             #[cfg(target_os = "macos")]
             exclude_names: cfg.options.macos_opts.macos_dev_names_exclude,
+            #[cfg(target_os = "macos")]
+            continue_if_no_devices: cfg.options.macos_opts.macos_continue_if_no_devs_found,
             #[cfg(any(target_os = "linux", target_os = "android"))]
             kbd_in_paths: cfg.options.linux_opts.linux_dev,
             #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -649,6 +651,8 @@ impl Kanata {
             include_names: cfg.options.macos_opts.macos_dev_names_include,
             #[cfg(target_os = "macos")]
             exclude_names: cfg.options.macos_opts.macos_dev_names_exclude,
+            #[cfg(target_os = "macos")]
+            continue_if_no_devices: cfg.options.macos_opts.macos_continue_if_no_devs_found,
             #[cfg(any(target_os = "linux", target_os = "android"))]
             kbd_in_paths: cfg.options.linux_opts.linux_dev,
             #[cfg(any(target_os = "linux", target_os = "android"))]

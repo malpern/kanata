@@ -609,6 +609,7 @@ impl KbdIn {
         include_names: Option<Vec<String>>,
         exclude_names: Option<Vec<String>>,
         input_devices: Option<&[(std::num::NonZeroU8, kanata_parser::cfg::InputDeviceMatcher)]>,
+        continue_if_no_devices: bool,
     ) -> Result<Self, anyhow::Error> {
         // Pre-flight the Input Monitoring TCC gate before touching the
         // Karabiner stack. A denied permission here produces a clean,
@@ -644,8 +645,12 @@ impl KbdIn {
 
         // Based on the definition of include and exclude names, they should never be used together.
         // Kanata config parser should probably enforce this.
-        let device_names = if let Some(included_names) = include_names {
-            validate_and_register_devices(included_names)
+        let (device_names, deferred_names) = if let Some(included_names) = include_names {
+            if continue_if_no_devices {
+                register_devices_with_deferred(included_names)
+            } else {
+                (validate_and_register_devices(included_names), vec![])
+            }
         } else {
             // No include list: enumerate every device the driverkit iterator
             // sees, drop any that are known-problematic (empty names, Sidecar
@@ -669,7 +674,7 @@ impl KbdIn {
                 })
                 .collect::<Vec<String>>();
 
-            validate_and_register_devices(devices_to_include)
+            (validate_and_register_devices(devices_to_include), vec![])
         };
 
         if !device_names.is_empty() {
@@ -680,14 +685,6 @@ impl KbdIn {
                     device_hash_to_id,
                 })
             } else {
-                // We have already pre-flighted Input Monitoring and
-                // Accessibility, so by this point the most common
-                // remaining cause of a `grab failed` is a stale TCC
-                // entry that still points at an older copy of the
-                // kanata binary — macOS pins the granted path, and
-                // after a move/rename/upgrade the new binary is not
-                // actually trusted even though the UI shows an entry.
-                // See issue #1211.
                 Err(anyhow!(
                     "grab failed. kanata could not open the keyboard device \
                      despite Input Monitoring and Accessibility being \
@@ -700,6 +697,23 @@ impl KbdIn {
                      sudo or a LaunchDaemon) and that no other process is \
                      exclusively grabbing the keyboard."
                 ))
+            }
+        } else if continue_if_no_devices {
+            // No devices are currently connected. For hash-based device IDs,
+            // register_device_hash already inserted them unconditionally — try
+            // grab() which starts the listener thread and device_connected_callback
+            // subscriptions. For name-based IDs we must poll.
+            if grab() {
+                log::info!(
+                    "No devices currently connected but listener started. \
+                     Waiting for device connection via callback..."
+                );
+                Ok(Self { grabbed: false, device_hash_to_id: HashMap::new() })
+            } else {
+                log::info!(
+                    "No devices registered yet. Polling for device connection..."
+                );
+                Self::poll_for_devices(deferred_names)
             }
         } else {
             Err(anyhow!(
@@ -756,6 +770,25 @@ impl KbdIn {
 
     pub fn is_grabbed(&self) -> bool {
         self.grabbed
+    }
+
+    fn poll_for_devices(deferred_names: Vec<String>) -> Result<Self, anyhow::Error> {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            let mut any_registered = false;
+            for name in &deferred_names {
+                if device_matches(name) && register_device(name) {
+                    log::info!("Device '{name}' appeared and was registered");
+                    any_registered = true;
+                }
+            }
+            if any_registered {
+                if grab() {
+                    return Ok(Self { grabbed: true, device_hash_to_id: HashMap::new() });
+                }
+                log::warn!("Device appeared but grab failed, continuing to poll...");
+            }
+        }
     }
 }
 
@@ -867,6 +900,29 @@ fn validate_and_register_devices(include_names: Vec<String>) -> Vec<String> {
             }
         })
         .collect()
+}
+
+/// Registers devices for a deferred grab when `continue_if_no_devices` is true.
+/// Returns (registered, deferred): devices that were registered now (connected)
+/// and device names that need polling (not currently connected).
+fn register_devices_with_deferred(include_names: Vec<String>) -> (Vec<String>, Vec<String>) {
+    let mut registered = Vec::new();
+    let mut deferred = Vec::new();
+
+    for dev in &include_names {
+        if dev.trim().is_empty() || dev.to_lowercase().contains("karabiner") {
+            continue;
+        }
+        if register_device(dev) {
+            log::info!("Device '{dev}' registered (currently connected)");
+            registered.push(dev.clone());
+        } else {
+            log::info!("Device '{dev}' not currently connected, will wait for it");
+            deferred.push(dev.clone());
+        }
+    }
+
+    (registered, deferred)
 }
 
 impl fmt::Display for InputEvent {
