@@ -14,17 +14,18 @@ pub(crate) fn list_devices_macos() {
 
     let print_header = || {
         println!(
-            "{:<20} {:<10} {:<10} product_key",
-            "hash", "vendor_id", "product_id"
+            "{:<20} {:<10} {:<10} {:<12} product_key",
+            "hash", "vendor_id", "product_id", "vid:pid"
         );
     };
 
     let print_line = || {
         println!(
-            "{}   {}   {}   {}",
+            "{}   {}   {}   {}   {}",
             "-".repeat(18),
             "-".repeat(8),
             "-".repeat(8),
+            "-".repeat(10),
             "-".repeat(50)
         );
     };
@@ -32,7 +33,12 @@ pub(crate) fn list_devices_macos() {
     print_header();
     print_line();
     for kb in kb_list.iter() {
-        println!("{}", kb);
+        println!(
+            "0x{:<18X} {:<10} {:<10} {:04X}:{:04X}    {}",
+            kb.hash, kb.vendor_id, kb.product_id,
+            kb.vendor_id, kb.product_id,
+            kb.product_key
+        );
     }
     print_line();
 
@@ -55,7 +61,8 @@ pub(crate) fn list_devices_macos() {
         );
     }
 
-    println!("\nConfiguration example:");
+    println!("\nConfiguration examples:");
+    println!("  ;; Match by device name");
     println!("  (defcfg");
     println!("    macos-dev-names-include (");
     for kb in kb_list
@@ -66,10 +73,16 @@ pub(crate) fn list_devices_macos() {
         println!("      \"{}\"", kb.trim());
     }
     println!("    )");
-    println!("    or instead:");
-    println!("    macos-dev-names-include (");
-    for kb in kb_list.iter().map(|k| k.hash) {
-        println!("      \"0x{:<16X}\"", kb);
+    println!("  )\n");
+    println!("  ;; Match by VID:PID (stable across reconnects)");
+    println!("  (defcfg");
+    println!("    macos-dev-ids-include (");
+    let mut seen_ids = std::collections::HashSet::new();
+    for kb in kb_list.iter() {
+        let id = format!("{:04X}:{:04X}", kb.vendor_id, kb.product_id);
+        if seen_ids.insert(id.clone()) {
+            println!("      \"{}\"", id);
+        }
     }
     println!("    )");
     println!("  )");
