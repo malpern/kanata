@@ -795,7 +795,7 @@ The first file specified is `n=1`.
 
 Live reload does not read or apply changes to device-related configurations.
 Examples of device-related configurations:
-`linux-dev`, `macos-dev-names-include`, `linux-use-trackpoint-property`,
+`linux-dev`, `macos-dev-names-include`, `macos-dev-ids-include`, `linux-use-trackpoint-property`,
 `windows-only-windows-interception-keyboard-hwids`.
 
 **Description**
@@ -5018,6 +5018,48 @@ Use `kanata -l` or `kanata --list` to list the available keyboards.
     "Device name 1"
     "Device name 2"
   )
+)
+----
+[[macos-only-macos-dev-ids-include]]
+=== macOS only: macos-dev-ids-include
+
+This option defines a list of device vendor/product ID pairs to include,
+specified as hex `"VID:PID"` strings. This is more reliable than
+`macos-dev-names-include` for keyboards whose product name changes across
+connect cycles (common with QMK/Via firmware keyboards).
+
+Use `kanata -l` or `kanata --list` to find the vendor and product IDs
+for your keyboards.
+
+.Example:
+[source]
+----
+(defcfg
+  macos-dev-ids-include (
+    "00DE:5754"
+    "05AC:0342"
+  )
+)
+----
+
+[[macos-only-macos-continue-if-no-devs-found]]
+=== macOS only: macos-continue-if-no-devs-found
+
+By default, kanata will exit with an error if no input devices are found.
+You can change this behaviour by setting `macos-continue-if-no-devs-found`.
+When enabled, kanata will poll for devices every 2 seconds and grab them
+when they appear. This is useful for Bluetooth keyboards that are not
+connected at boot time.
+
+This option works best with `macos-dev-ids-include` or
+`macos-dev-names-include` to specify which device to wait for.
+
+.Example:
+[source]
+----
+(defcfg
+  macos-dev-ids-include ("00DE:5754")
+  macos-continue-if-no-devs-found yes
 )
 ----
 
