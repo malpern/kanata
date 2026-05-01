@@ -738,10 +738,8 @@ impl KbdIn {
     /// Release seized input devices without tearing down the output connection.
     /// After this call, `read()` will return `UnexpectedEof`.
     pub fn release_input(&mut self) {
-        if self.grabbed {
-            release_input_only();
-            self.grabbed = false;
-        }
+        release_input_only();
+        self.grabbed = false;
     }
 
     /// Re-seize input devices after a previous `release_input()`.
