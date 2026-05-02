@@ -50,13 +50,19 @@ pub enum ServerMessage {
     },
     /// Sent when a tap-hold key transitions to hold state.
     /// The `key` field is the physical key name (e.g., `"caps"`, `"a"`).
+    /// The `reason` field explains why this decision was made.
     HoldActivated {
         key: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
     },
     /// Sent when a tap-hold key triggers its tap action.
     /// The `key` field is the physical key name (e.g., `"caps"`, `"a"`).
+    /// The `reason` field explains why this decision was made.
     TapActivated {
         key: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
     },
     /// Sent on every physical key press/release for live overlay visualization.
     /// The `key` field is the physical key name (lowercase, e.g., `"space"`, `"a"`).
@@ -283,6 +289,21 @@ mod tests {
     fn test_hold_activated_json_format() {
         let msg = ServerMessage::HoldActivated {
             key: "caps".to_string(),
+            reason: Some("opposite-hand".into()),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(
+            json,
+            r#"{"HoldActivated":{"key":"caps","reason":"opposite-hand"}}"#
+        );
+    }
+
+    #[test]
+    fn test_hold_activated_no_reason() {
+        // Backward compatible: reason is optional
+        let msg = ServerMessage::HoldActivated {
+            key: "caps".to_string(),
+            reason: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert_eq!(json, r#"{"HoldActivated":{"key":"caps"}}"#);
@@ -292,6 +313,20 @@ mod tests {
     fn test_tap_activated_json_format() {
         let msg = ServerMessage::TapActivated {
             key: "a".to_string(),
+            reason: Some("prior-idle".into()),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(
+            json,
+            r#"{"TapActivated":{"key":"a","reason":"prior-idle"}}"#
+        );
+    }
+
+    #[test]
+    fn test_tap_activated_no_reason() {
+        let msg = ServerMessage::TapActivated {
+            key: "a".to_string(),
+            reason: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert_eq!(json, r#"{"TapActivated":{"key":"a"}}"#);
