@@ -91,6 +91,9 @@ use dynamic_macro::*;
 
 mod key_repeat;
 
+mod managed_repeat;
+pub use managed_repeat::ManagedRepeatState;
+
 mod millisecond_counting;
 pub use millisecond_counting::*;
 
@@ -312,6 +315,7 @@ pub struct Kanata {
     /// Various GUI-related options.
     pub gui_opts: CfgOptionsGui,
     pub allow_hardware_repeat: bool,
+    pub managed_repeat_state: Option<ManagedRepeatState>,
     /// When > 0, it means macros should be cancelled on the next press.
     /// Upon cancelling this should be set to 0.
     pub macro_on_press_cancel_duration: u32,
@@ -542,7 +546,23 @@ impl Kanata {
             tcp_server_address: args.tcp_server_address.clone(),
             #[cfg(all(target_os = "windows", feature = "gui"))]
             gui_opts: cfg.options.gui_opts,
-            allow_hardware_repeat: cfg.options.allow_hardware_repeat,
+            allow_hardware_repeat: if cfg.options.managed_repeat {
+                false
+            } else {
+                cfg.options.allow_hardware_repeat
+            },
+            managed_repeat_state: if cfg.options.managed_repeat {
+                let mut state = ManagedRepeatState::new(
+                    cfg.options.managed_repeat_delay,
+                    cfg.options.managed_repeat_interval,
+                );
+                for ovr in &cfg.options.managed_repeat_overrides {
+                    state.add_override(ovr.key, ovr.delay, ovr.interval);
+                }
+                Some(state)
+            } else {
+                None
+            },
             macro_on_press_cancel_duration: 0,
             saved_clipboard_content: Default::default(),
             #[cfg(any(
@@ -694,7 +714,23 @@ impl Kanata {
             tcp_server_address: None,
             #[cfg(all(target_os = "windows", feature = "gui"))]
             gui_opts: cfg.options.gui_opts,
-            allow_hardware_repeat: cfg.options.allow_hardware_repeat,
+            allow_hardware_repeat: if cfg.options.managed_repeat {
+                false
+            } else {
+                cfg.options.allow_hardware_repeat
+            },
+            managed_repeat_state: if cfg.options.managed_repeat {
+                let mut state = ManagedRepeatState::new(
+                    cfg.options.managed_repeat_delay,
+                    cfg.options.managed_repeat_interval,
+                );
+                for ovr in &cfg.options.managed_repeat_overrides {
+                    state.add_override(ovr.key, ovr.delay, ovr.interval);
+                }
+                Some(state)
+            } else {
+                None
+            },
             macro_on_press_cancel_duration: 0,
             saved_clipboard_content: Default::default(),
             #[cfg(any(
@@ -785,6 +821,24 @@ impl Kanata {
         {
             zch().zch_configure(cfg.zippy.unwrap_or_default());
         }
+
+        self.managed_repeat_state = if cfg.options.managed_repeat {
+            let mut state = ManagedRepeatState::new(
+                cfg.options.managed_repeat_delay,
+                cfg.options.managed_repeat_interval,
+            );
+            for ovr in &cfg.options.managed_repeat_overrides {
+                state.add_override(ovr.key, ovr.delay, ovr.interval);
+            }
+            Some(state)
+        } else {
+            None
+        };
+        self.allow_hardware_repeat = if cfg.options.managed_repeat {
+            false
+        } else {
+            cfg.options.allow_hardware_repeat
+        };
 
         *MAPPED_KEYS.lock() = cfg.mapped_keys;
         #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -1018,6 +1072,7 @@ impl Kanata {
 
     fn tick_states(&mut self, _tx: &Option<Sender<ServerMessage>>) -> Result<()> {
         self.live_reload_requested |= self.handle_keystate_changes(_tx)?;
+        self.tick_managed_repeat()?;
         self.handle_scrolling()?;
         self.handle_move_mouse()?;
         self.tick_sequence_state()?;
@@ -1215,6 +1270,8 @@ impl Kanata {
     ///
     /// Returns whether live reload was requested.
     fn handle_keystate_changes(&mut self, _tx: &Option<Sender<ServerMessage>>) -> Result<bool> {
+        #[cfg(feature = "tcp_server")]
+        let layer_info = &self.layer_info;
         let layout = self.layout.bm();
         let custom_event = layout.tick();
 
@@ -1245,6 +1302,50 @@ impl Kanata {
                 Ok(_) => {}
                 Err(error) => {
                     log::error!("could not send TapActivated event: {}", error);
+                }
+            }
+        }
+        #[cfg(feature = "tcp_server")]
+        if let Some(chord_info) = layout.chord_tap_dance_tracker.take_chord_resolved()
+            && let Some(tx) = _tx
+        {
+            let keys = chord_info
+                .keys
+                .iter()
+                .filter(|c| c.0 == NORMAL_KEY_ROW)
+                .map(|c| OsCode::from(c.1).to_string().to_lowercase())
+                .collect::<Vec<_>>()
+                .join("+");
+            let action = resolve_action_desc(chord_info.action.as_str(), layer_info);
+            let t = self.start_time.elapsed().as_millis() as u64;
+            log::debug!("ChordResolved: keys={keys} action={action}");
+            match tx.try_send(ServerMessage::ChordResolved { keys, action, t }) {
+                Ok(_) => {}
+                Err(error) => {
+                    log::error!("could not send ChordResolved event: {}", error);
+                }
+            }
+        }
+        #[cfg(feature = "tcp_server")]
+        if let Some(td_info) = layout.chord_tap_dance_tracker.take_tap_dance_resolved()
+            && td_info.coord.0 == NORMAL_KEY_ROW
+            && let Some(tx) = _tx
+        {
+            let osc = OsCode::from(td_info.coord.1);
+            let key = osc.to_string().to_lowercase();
+            let tap_count = td_info.num_taps;
+            let action = resolve_action_desc(td_info.action.as_str(), layer_info);
+            let t = self.start_time.elapsed().as_millis() as u64;
+            log::debug!("TapDanceResolved: key={key} tap_count={tap_count} action={action}");
+            match tx.try_send(ServerMessage::TapDanceResolved {
+                key,
+                tap_count,
+                action,
+                t,
+            }) {
+                Ok(_) => {}
+                Err(error) => {
+                    log::error!("could not send TapDanceResolved event: {}", error);
                 }
             }
         }
@@ -2543,6 +2644,10 @@ impl Kanata {
             && self.dynamic_macro_replay_state.is_none()
             && self.caps_word.is_none()
             && self.vkeys_pending_release.is_empty()
+            && self
+                .managed_repeat_state
+                .as_ref()
+                .is_none_or(|s| s.is_idle())
             && !layout.states.iter().any(|s| {
                 matches!(s, State::SeqCustomPending(_) | State::SeqCustomActive(_))
                     || (pressed_keys_means_not_idle && matches!(s, State::NormalKey { .. }))
@@ -2757,6 +2862,18 @@ pub fn handle_fakekey_action<'a, const C: usize, const R: usize, T>(
             };
         }
     };
+}
+
+#[cfg(feature = "tcp_server")]
+fn resolve_action_desc(desc: &str, layer_info: &[LayerInfo]) -> String {
+    if let Some(rest) = desc.strip_prefix("@layer-").or_else(|| desc.strip_prefix("@deflayer-")) {
+        if let Ok(n) = rest.parse::<usize>() {
+            if let Some(info) = layer_info.get(n) {
+                return format!("@{}", info.name);
+            }
+        }
+    }
+    desc.to_lowercase()
 }
 
 fn states_has_coord<T>(states: &[State<T>], x: u8, y: u16) -> bool {
