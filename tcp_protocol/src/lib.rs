@@ -72,6 +72,19 @@ pub enum ServerMessage {
         /// Milliseconds since kanata started (monotonic timestamp).
         t: u64,
     },
+    /// Sent when a chord (multi-key combo) resolves to an action.
+    ChordResolved {
+        keys: String,
+        action: String,
+        t: u64,
+    },
+    /// Sent when a tap-dance resolves to an action.
+    TapDanceResolved {
+        key: String,
+        tap_count: u16,
+        action: String,
+        t: u64,
+    },
 }
 
 /// Action type for KeyInput events.
@@ -355,5 +368,34 @@ mod tests {
             }
             _ => panic!("Expected KeyInput"),
         }
+    }
+
+    #[test]
+    fn test_chord_resolved_json_format() {
+        let msg = ServerMessage::ChordResolved {
+            keys: "s+d".to_string(),
+            action: "esc".to_string(),
+            t: 12345,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(
+            json,
+            r#"{"ChordResolved":{"keys":"s+d","action":"esc","t":12345}}"#
+        );
+    }
+
+    #[test]
+    fn test_tap_dance_resolved_json_format() {
+        let msg = ServerMessage::TapDanceResolved {
+            key: "q".to_string(),
+            tap_count: 2,
+            action: "alt+tab".to_string(),
+            t: 12345,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(
+            json,
+            r#"{"TapDanceResolved":{"key":"q","tap_count":2,"action":"alt+tab","t":12345}}"#
+        );
     }
 }
