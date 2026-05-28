@@ -2424,6 +2424,8 @@ impl Kanata {
             let mut last_input_time = web_time::Instant::now();
 
             let mut events = Vec::new();
+            #[cfg(target_os = "macos")]
+            let mut consecutive_slow_iters: u32 = 0;
             let err = loop {
                 let can_block = {
                     let mut k = kanata.lock();
@@ -2545,6 +2547,30 @@ impl Kanata {
                                     iter_elapsed.as_millis()
                                 );
                             }
+
+                            #[cfg(target_os = "macos")]
+                            {
+                                const SLOW_ITER_THRESHOLD: u32 = 5;
+                                if iter_elapsed > time::Duration::from_millis(20) {
+                                    consecutive_slow_iters =
+                                        consecutive_slow_iters.saturating_add(1);
+                                    if consecutive_slow_iters >= SLOW_ITER_THRESHOLD {
+                                        log::warn!(
+                                            "[LATENCY] {} consecutive slow iterations — \
+                                             clearing stuck key states",
+                                            consecutive_slow_iters
+                                        );
+                                        let layout = k.layout.bm();
+                                        release_normalkey_states(layout);
+                                        PRESSED_KEYS.lock().clear();
+                                        k.kbd_out
+                                            .release_tracked_output_keys("latency-soft-reset");
+                                        consecutive_slow_iters = 0;
+                                    }
+                                } else {
+                                    consecutive_slow_iters = 0;
+                                }
+                            }
                         }
                         Err(_) => {
                             log::error!("channel disconnected");
@@ -2635,6 +2661,30 @@ impl Kanata {
                                     "[LATENCY] processing loop iteration took {}ms (expected ~1ms)",
                                     iter_elapsed.as_millis()
                                 );
+                            }
+
+                            #[cfg(target_os = "macos")]
+                            {
+                                const SLOW_ITER_THRESHOLD: u32 = 5;
+                                if iter_elapsed > time::Duration::from_millis(20) {
+                                    consecutive_slow_iters =
+                                        consecutive_slow_iters.saturating_add(1);
+                                    if consecutive_slow_iters >= SLOW_ITER_THRESHOLD {
+                                        log::warn!(
+                                            "[LATENCY] {} consecutive slow iterations — \
+                                             clearing stuck key states",
+                                            consecutive_slow_iters
+                                        );
+                                        let layout = k.layout.bm();
+                                        release_normalkey_states(layout);
+                                        PRESSED_KEYS.lock().clear();
+                                        k.kbd_out
+                                            .release_tracked_output_keys("latency-soft-reset");
+                                        consecutive_slow_iters = 0;
+                                    }
+                                } else {
+                                    consecutive_slow_iters = 0;
+                                }
                             }
                         }
                         Err(TryRecvError::Empty) => {
