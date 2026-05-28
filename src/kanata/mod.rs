@@ -2477,6 +2477,8 @@ impl Kanata {
                                 }
                             }
 
+                            let iter_start = web_time::Instant::now();
+
                             #[cfg(feature = "perf_logging")]
                             let start = web_time::Instant::now();
 
@@ -2535,6 +2537,14 @@ impl Kanata {
                                 "[PERF]: handle time ticks: {} ns",
                                 (start.elapsed()).as_nanos()
                             );
+
+                            let iter_elapsed = iter_start.elapsed();
+                            if iter_elapsed > time::Duration::from_millis(20) {
+                                log::info!(
+                                    "[LATENCY] processing loop iteration took {}ms (expected ~1ms)",
+                                    iter_elapsed.as_millis()
+                                );
+                            }
                         }
                         Err(_) => {
                             log::error!("channel disconnected");
@@ -2558,6 +2568,8 @@ impl Kanata {
                                 }
                             }
 
+                            let iter_start = web_time::Instant::now();
+
                             #[cfg(feature = "perf_logging")]
                             let start = web_time::Instant::now();
 
@@ -2616,6 +2628,14 @@ impl Kanata {
                                 "[PERF]: handle time ticks: {} ns",
                                 (start.elapsed()).as_nanos()
                             );
+
+                            let iter_elapsed = iter_start.elapsed();
+                            if iter_elapsed > time::Duration::from_millis(20) {
+                                log::info!(
+                                    "[LATENCY] processing loop iteration took {}ms (expected ~1ms)",
+                                    iter_elapsed.as_millis()
+                                );
+                            }
                         }
                         Err(TryRecvError::Empty) => {
                             let mut k = kanata.lock();
