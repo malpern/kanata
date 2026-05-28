@@ -2410,6 +2410,10 @@ impl Kanata {
             let mut idle_clear_happened = false;
             #[cfg(all(not(feature = "interception_driver"), target_os = "windows"))]
             let mut last_input_time = web_time::Instant::now();
+            #[cfg(target_os = "macos")]
+            let mut idle_clear_happened = false;
+            #[cfg(target_os = "macos")]
+            let mut last_input_time = web_time::Instant::now();
 
             let mut events = Vec::new();
             let err = loop {
@@ -2439,6 +2443,13 @@ impl Kanata {
                                 not(feature = "interception_driver"),
                                 target_os = "windows"
                             ))]
+                            clear_states_from_inactivity(
+                                &mut k,
+                                now,
+                                last_input_time,
+                                &mut idle_clear_happened,
+                            );
+                            #[cfg(target_os = "macos")]
                             clear_states_from_inactivity(
                                 &mut k,
                                 now,
@@ -2486,6 +2497,14 @@ impl Kanata {
                                 not(feature = "interception_driver"),
                                 target_os = "windows"
                             ))]
+                            {
+                                idle_clear_happened = false;
+                            }
+                            #[cfg(target_os = "macos")]
+                            {
+                                last_input_time = now;
+                            }
+                            #[cfg(target_os = "macos")]
                             {
                                 idle_clear_happened = false;
                             }
@@ -2562,6 +2581,14 @@ impl Kanata {
                             {
                                 idle_clear_happened = false;
                             }
+                            #[cfg(target_os = "macos")]
+                            {
+                                last_input_time = web_time::Instant::now();
+                            }
+                            #[cfg(target_os = "macos")]
+                            {
+                                idle_clear_happened = false;
+                            }
 
                             #[cfg(feature = "perf_logging")]
                             log::info!(
@@ -2603,6 +2630,13 @@ impl Kanata {
                                 not(feature = "interception_driver"),
                                 target_os = "windows"
                             ))]
+                            clear_states_from_inactivity(
+                                &mut k,
+                                web_time::Instant::now(),
+                                last_input_time,
+                                &mut idle_clear_happened,
+                            );
+                            #[cfg(target_os = "macos")]
                             clear_states_from_inactivity(
                                 &mut k,
                                 web_time::Instant::now(),
@@ -2950,7 +2984,10 @@ fn states_has_coord<T>(states: &[State<T>], x: u8, y: u16) -> bool {
     })
 }
 
-#[cfg(all(not(feature = "interception_driver"), target_os = "windows"))]
+#[cfg(any(
+    all(not(feature = "interception_driver"), target_os = "windows"),
+    target_os = "macos"
+))]
 fn release_normalkey_states<'a, const C: usize, const R: usize, T>(layout: &mut Layout<'a, C, R, T>)
 where
     T: 'a + std::fmt::Debug + Copy,
@@ -2981,6 +3018,31 @@ where
     }
     for coord in coords_to_release.into_iter() {
         layout.event(Event::Release(coord.0, coord.1));
+    }
+}
+
+/// macOS equivalent of the Windows idle-clearing logic.
+///
+/// On macOS, CPU/memory pressure (compilation, Spotlight indexing) can starve
+/// the processing thread, delaying release events and leaving keyberon states
+/// stuck. After `IDLE_CLEAR_SECS` seconds of no physical input, clear all
+/// normal-key states and the physical pressed-key set.
+#[cfg(target_os = "macos")]
+fn clear_states_from_inactivity(
+    k: &mut parking_lot::MutexGuard<Kanata>,
+    now: web_time::Instant,
+    last_input_time: web_time::Instant,
+    idle_clear_happened: &mut bool,
+) {
+    const IDLE_CLEAR_SECS: u64 = 60;
+    if (now - last_input_time) > time::Duration::from_secs(IDLE_CLEAR_SECS)
+        && !*idle_clear_happened
+    {
+        *idle_clear_happened = true;
+        log::debug!("clearing keyberon normal key states due to inactivity");
+        let layout = k.layout.bm();
+        release_normalkey_states(layout);
+        PRESSED_KEYS.lock().clear();
     }
 }
 
