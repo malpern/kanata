@@ -336,6 +336,13 @@ pub struct Kanata {
     /// Whether last reload was successful
     #[cfg(feature = "tcp_server")]
     last_reload_ok: bool,
+    /// Sender for unsolicited server notifications pushed to TCP clients.
+    /// Cloned from the notification channel created in `main`. Lives on the
+    /// struct so the OS event/grab loop (which only receives the key-event
+    /// channel) can broadcast `ServerMessage::InputGrab` via the shared
+    /// `Arc<Mutex<Kanata>>`. `None` when the TCP server is disabled.
+    #[cfg(feature = "tcp_server")]
+    pub tcp_notify_tx: Option<Sender<ServerMessage>>,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -578,6 +585,8 @@ impl Kanata {
             start_time: web_time::Instant::now(),
             #[cfg(feature = "tcp_server")]
             last_reload_ok: true,
+            #[cfg(feature = "tcp_server")]
+            tcp_notify_tx: None,
         })
     }
 
@@ -749,6 +758,8 @@ impl Kanata {
             start_time: web_time::Instant::now(),
             #[cfg(feature = "tcp_server")]
             last_reload_ok: true,
+            #[cfg(feature = "tcp_server")]
+            tcp_notify_tx: None,
         })
     }
 
@@ -1087,6 +1098,35 @@ impl Kanata {
                 log::warn!("[KeyInput] drop: channel full or disconnected: {e}");
             } else {
                 log::info!("[KeyInput] sent key={} action={:?} t={}", key_name, action, t);
+            }
+        }
+    }
+
+    /// Broadcast authoritative input-grab status over TCP.
+    ///
+    /// `active` is whether at least one physical device is currently seized;
+    /// `devices` is the list of seized device names (empty when not active);
+    /// `reason` is an optional explanation (typically a failure cause).
+    ///
+    /// This is ground truth from the OS grab layer, not inferred from key-event
+    /// flow, so it is immune to the "no keys seen" ambiguity (idle user vs.
+    /// failed grab vs. synthetic/VNC input). Uses the notification sender stored
+    /// on the struct so the OS event loop can call it via the shared
+    /// `Arc<Mutex<Kanata>>`. Feature-gated to tcp_server only.
+    #[cfg(feature = "tcp_server")]
+    pub fn emit_input_grab(&self, active: bool, devices: Vec<String>, reason: Option<String>) {
+        if let Some(tx) = &self.tcp_notify_tx {
+            match tx.try_send(ServerMessage::InputGrab {
+                active,
+                devices,
+                reason,
+            }) {
+                Ok(()) => {
+                    log::info!("[InputGrab] sent active={active}");
+                }
+                Err(e) => {
+                    log::warn!("[InputGrab] drop: channel full or disconnected: {e}");
+                }
             }
         }
     }
@@ -3302,6 +3342,63 @@ mod tcp_layer_change_tests {
             }
         }
         changes
+    }
+
+    /// Verifies the `InputGrab` emit path end-to-end through the same
+    /// notification channel wiring used in `main`: a `Kanata` with
+    /// `tcp_notify_tx` set, `emit_input_grab` called, and the exact wire bytes
+    /// (newline-terminated JSON) asserted on the receiver. This stands in for a
+    /// live grab test, which is unsafe to run because it would fight the
+    /// production kanata for the physical keyboard.
+    #[test]
+    fn emit_input_grab_sends_authoritative_status_over_channel() {
+        let _lk = match crate::tests::CFG_PARSE_LOCK.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let mut k = Kanata::new_from_str(
+            r"
+(defsrc a)
+(deflayer base b)
+            ",
+            Default::default(),
+        )
+        .expect("failed to parse cfg");
+
+        // Wire the notification channel exactly like main.rs does.
+        let (tx, rx) = sync_channel::<ServerMessage>(10);
+        k.tcp_notify_tx = Some(tx);
+
+        // Success: grab active with a device list, no reason.
+        k.emit_input_grab(
+            true,
+            vec!["Apple Internal Keyboard / Trackpad".to_string()],
+            None,
+        );
+        let msg = rx.try_recv().expect("expected an InputGrab message");
+        assert_eq!(
+            String::from_utf8(msg.as_bytes()).unwrap(),
+            "{\"InputGrab\":{\"active\":true,\"devices\":[\"Apple Internal Keyboard / Trackpad\"]}}\n"
+        );
+
+        // Failure: grab inactive, empty devices, with a reason.
+        k.emit_input_grab(
+            false,
+            Vec::new(),
+            Some("another process has exclusive grab".to_string()),
+        );
+        let msg = rx.try_recv().expect("expected an InputGrab message");
+        assert_eq!(
+            String::from_utf8(msg.as_bytes()).unwrap(),
+            "{\"InputGrab\":{\"active\":false,\"devices\":[],\"reason\":\"another process has exclusive grab\"}}\n"
+        );
+
+        // No notification sender => no panic, nothing emitted (TCP disabled).
+        // Dropping the sender closes the channel, so the receiver reports it as
+        // disconnected (and never as a delivered message).
+        k.tcp_notify_tx = None;
+        k.emit_input_grab(true, vec!["x".to_string()], None);
+        assert!(matches!(rx.try_recv(), Err(TryRecvError::Disconnected)));
     }
 
     #[test]

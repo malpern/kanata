@@ -218,6 +218,14 @@ mod cli {
             (None, None, None)
         };
 
+        // Hand the OS event/grab loop a clone of the notification sender so it
+        // can broadcast authoritative `InputGrab` status (the grab happens in
+        // the event loop, which otherwise only has the key-event channel).
+        #[cfg(feature = "tcp_server")]
+        {
+            kanata_arc.lock().tcp_notify_tx = ntx.clone();
+        }
+
         Kanata::start_processing_loop(kanata_arc.clone(), rx, ntx, args.nodelay);
 
         if let (Some(server), Some(nrx)) = (server, nrx) {

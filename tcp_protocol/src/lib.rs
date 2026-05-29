@@ -85,6 +85,30 @@ pub enum ServerMessage {
         action: String,
         t: u64,
     },
+    /// Authoritative report of whether kanata has physically grabbed (seized)
+    /// the input keyboard device(s).
+    ///
+    /// This is ground truth straight from the OS grab layer — it is NOT
+    /// inferred from key-event flow, so it is immune to the ambiguity of
+    /// "no keys seen" (idle user vs. failed grab vs. synthetic/VNC input that
+    /// bypasses the physical seize).
+    ///
+    /// Emitted on startup once the grab attempt resolves, and again on any
+    /// change afterward (devices released for recovery/lock, re-seized via the
+    /// recovery path, or devices added/removed).
+    ///
+    /// - `active`: true if at least one physical device is currently seized.
+    /// - `devices`: names of the currently seized devices. Always present;
+    ///   empty when `active` is false.
+    /// - `reason`: optional human-readable explanation, typically populated on
+    ///   failure (e.g. another process holds an exclusive grab, not running as
+    ///   root, driver not approved).
+    InputGrab {
+        active: bool,
+        devices: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
 }
 
 /// Action type for KeyInput events.
@@ -382,6 +406,79 @@ mod tests {
             json,
             r#"{"ChordResolved":{"keys":"s+d","action":"esc","t":12345}}"#
         );
+    }
+
+    #[test]
+    fn test_input_grab_active_json_format() {
+        let msg = ServerMessage::InputGrab {
+            active: true,
+            devices: vec![
+                "Apple Internal Keyboard / Trackpad".to_string(),
+                "HHKB-Hybrid".to_string(),
+            ],
+            reason: None,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(
+            json,
+            r#"{"InputGrab":{"active":true,"devices":["Apple Internal Keyboard / Trackpad","HHKB-Hybrid"]}}"#
+        );
+
+        // Round-trip
+        let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
+        match parsed {
+            ServerMessage::InputGrab {
+                active,
+                devices,
+                reason,
+            } => {
+                assert!(active);
+                assert_eq!(devices, vec!["Apple Internal Keyboard / Trackpad", "HHKB-Hybrid"]);
+                assert!(reason.is_none());
+            }
+            _ => panic!("Expected InputGrab"),
+        }
+    }
+
+    #[test]
+    fn test_input_grab_failure_json_format() {
+        let msg = ServerMessage::InputGrab {
+            active: false,
+            devices: vec![],
+            reason: Some("another process has exclusive grab".to_string()),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(
+            json,
+            r#"{"InputGrab":{"active":false,"devices":[],"reason":"another process has exclusive grab"}}"#
+        );
+
+        // Round-trip
+        let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
+        match parsed {
+            ServerMessage::InputGrab {
+                active,
+                devices,
+                reason,
+            } => {
+                assert!(!active);
+                assert!(devices.is_empty());
+                assert_eq!(reason.as_deref(), Some("another process has exclusive grab"));
+            }
+            _ => panic!("Expected InputGrab"),
+        }
+    }
+
+    #[test]
+    fn test_input_grab_no_reason_omits_field() {
+        // Stable schema: devices always present, reason omitted when None.
+        let msg = ServerMessage::InputGrab {
+            active: false,
+            devices: vec![],
+            reason: None,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(json, r#"{"InputGrab":{"active":false,"devices":[]}}"#);
     }
 
     #[test]
