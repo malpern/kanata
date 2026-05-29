@@ -51,7 +51,16 @@ impl Kanata {
             continue_if_no_devices,
         ) {
             Ok(kbd_in) => kbd_in,
-            Err(e) => bail!("failed to open keyboard device(s): {}", e),
+            Err(e) => {
+                // Report authoritative grab failure to TCP clients before we
+                // bail. KeyPath consumes this as a non-inferential health
+                // signal (vs. log-scraping / "no keys seen").
+                #[cfg(feature = "tcp_server")]
+                kanata
+                    .lock()
+                    .emit_input_grab(false, Vec::new(), Some(e.to_string()));
+                bail!("failed to open keyboard device(s): {}", e);
+            }
         };
 
         {
@@ -95,6 +104,21 @@ impl Kanata {
             info!("keyboard grabbed, entering event processing loop");
         } else {
             info!("no devices grabbed yet, waiting for device connection...");
+        }
+
+        // Emit authoritative grab status once the startup grab attempt has
+        // resolved. `is_grabbed()` is ground truth from the OS seize layer.
+        // When false here we are in the "continue_if_no_devices" deferred path:
+        // no device is connected yet, so report inactive with no failure reason.
+        #[cfg(feature = "tcp_server")]
+        {
+            let active = kb.is_grabbed();
+            let devices = if active {
+                kb.grabbed_device_names().to_vec()
+            } else {
+                Vec::new()
+            };
+            kanata.lock().emit_input_grab(active, devices, None);
         }
 
         // Start the mouse event tap on a background thread if any mouse buttons
@@ -232,6 +256,12 @@ impl Kanata {
             // --- Release input so the keyboard works normally (unseized) ---
             kb.release_input();
 
+            // Report that the grab is no longer active (output-backend loss,
+            // screen lock, or fast-user-switch). This is the authoritative
+            // "kanata is up but NOT grabbing" signal.
+            #[cfg(feature = "tcp_server")]
+            kanata.lock().emit_input_grab(false, Vec::new(), None);
+
             info!(
                 "Input devices released. Keyboard is usable (without remapping). \
                  Waiting for the output backend and console session to recover..."
@@ -270,13 +300,24 @@ impl Kanata {
             // Re-seize input devices using regrab_input() which creates a fresh
             // pipe and listener thread without re-initializing the sink client.
             if kb.regrab_input() {
+                #[cfg(feature = "tcp_server")]
+                kanata
+                    .lock()
+                    .emit_input_grab(true, kb.grabbed_device_names().to_vec(), None);
                 info!("keyboard grabbed, entering event processing loop");
             } else if continue_if_no_devices {
+                #[cfg(feature = "tcp_server")]
+                kanata.lock().emit_input_grab(false, Vec::new(), None);
                 info!("no devices grabbed after recovery, waiting for device connection...");
             } else {
+                #[cfg(feature = "tcp_server")]
+                kanata.lock().emit_input_grab(
+                    false,
+                    Vec::new(),
+                    Some("failed to re-grab keyboard devices after DriverKit recovery".to_string()),
+                );
                 bail!("failed to re-grab keyboard devices after DriverKit recovery");
             }
-
             // Back to the event processing loop.
         }
     }

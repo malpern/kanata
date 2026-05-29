@@ -584,6 +584,10 @@ impl From<InputEvent> for DKEvent {
 pub struct KbdIn {
     grabbed: bool,
     device_hash_to_id: HashMap<u64, std::num::NonZeroU8>,
+    /// Names of the devices that were successfully seized for the current
+    /// grab. Empty when nothing is grabbed. Used to report authoritative grab
+    /// status over TCP (see `ServerMessage::InputGrab`).
+    device_names: Vec<String>,
 }
 
 impl Drop for KbdIn {
@@ -665,6 +669,7 @@ impl KbdIn {
                 Ok(Self {
                     grabbed: true,
                     device_hash_to_id,
+                    device_names,
                 })
             } else {
                 // We have already pre-flighted Input Monitoring and
@@ -699,6 +704,7 @@ impl KbdIn {
                 Ok(Self {
                     grabbed: false,
                     device_hash_to_id,
+                    device_names: Vec::new(),
                 })
             } else {
                 log::info!("No devices registered yet. Polling for device connection...");
@@ -761,6 +767,13 @@ impl KbdIn {
         self.grabbed
     }
 
+    /// Names of the devices currently seized by this grab. Empty when nothing
+    /// is grabbed. The list is retained across `release_input()` /
+    /// `regrab_input()` cycles because recovery re-seizes the same devices.
+    pub fn grabbed_device_names(&self) -> &[String] {
+        &self.device_names
+    }
+
     fn poll_for_devices(
         names: &[String],
         input_devices: Option<&[(std::num::NonZeroU8, kanata_parser::cfg::InputDeviceMatcher)]>,
@@ -776,19 +789,20 @@ impl KbdIn {
                     poll_count * 2
                 );
             }
-            let mut any_registered = false;
+            let mut registered_names = Vec::new();
             for name in names {
                 if device_matches(name) && register_device(name) {
                     log::info!("Device '{name}' appeared and was registered");
-                    any_registered = true;
+                    registered_names.push(name.clone());
                 }
             }
-            if any_registered {
+            if !registered_names.is_empty() {
                 if grab() {
                     let device_hash_to_id = build_device_hash_to_id_map(input_devices);
                     return Ok(Self {
                         grabbed: true,
                         device_hash_to_id,
+                        device_names: registered_names,
                     });
                 }
                 log::warn!("Device appeared but grab failed, continuing to poll...");
