@@ -308,6 +308,29 @@ impl TcpServer {
                                                     ),
                                                 }
                                             }
+                                            ClientMessage::RequestInputGrab {} => {
+                                                // Answer with the last authoritative grab status
+                                                // cached by `emit_input_grab`. If the grab attempt
+                                                // has not resolved yet (nothing cached), send no
+                                                // response: we never fabricate a status, and the
+                                                // client falls back to its own detection on silence.
+                                                let k = kanata.lock();
+                                                let cached = k.last_input_grab.clone();
+                                                drop(k);
+                                                if let Some((active, devices, reason)) = cached {
+                                                    let msg = ServerMessage::InputGrab {
+                                                        active,
+                                                        devices,
+                                                        reason,
+                                                    };
+                                                    match stream.write_all(&msg.as_bytes()) {
+                                                        Ok(_) => {}
+                                                        Err(err) => log::error!(
+                                                            "Error writing response to RequestInputGrab: {err}"
+                                                        ),
+                                                    }
+                                                }
+                                            }
                                             // New command: Hello - capability detection
                                             ClientMessage::Hello {} => {
                                                 let version = env!("CARGO_PKG_VERSION").to_string();
@@ -325,6 +348,7 @@ impl TcpServer {
                                                     "fake-key".to_string(),
                                                     "set-mouse".to_string(),
                                                     "key-input".to_string(),
+                                                    "input-grab".to_string(),
                                                 ];
                                                 let msg = ServerMessage::HelloOk {
                                                     version,

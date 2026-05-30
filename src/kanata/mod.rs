@@ -343,6 +343,14 @@ pub struct Kanata {
     /// `Arc<Mutex<Kanata>>`. `None` when the TCP server is disabled.
     #[cfg(feature = "tcp_server")]
     pub tcp_notify_tx: Option<Sender<ServerMessage>>,
+    /// Last authoritative input-grab status emitted via `emit_input_grab`,
+    /// cached so a TCP client can fetch it on demand with
+    /// `ClientMessage::RequestInputGrab` (the transition-only broadcast is
+    /// missed by clients that connect after startup). Tuple is
+    /// `(active, devices, reason)`. `None` until the grab attempt first
+    /// resolves.
+    #[cfg(feature = "tcp_server")]
+    pub last_input_grab: Option<(bool, Vec<String>, Option<String>)>,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -587,6 +595,8 @@ impl Kanata {
             last_reload_ok: true,
             #[cfg(feature = "tcp_server")]
             tcp_notify_tx: None,
+            #[cfg(feature = "tcp_server")]
+            last_input_grab: None,
         })
     }
 
@@ -760,6 +770,8 @@ impl Kanata {
             last_reload_ok: true,
             #[cfg(feature = "tcp_server")]
             tcp_notify_tx: None,
+            #[cfg(feature = "tcp_server")]
+            last_input_grab: None,
         })
     }
 
@@ -1114,7 +1126,12 @@ impl Kanata {
     /// on the struct so the OS event loop can call it via the shared
     /// `Arc<Mutex<Kanata>>`. Feature-gated to tcp_server only.
     #[cfg(feature = "tcp_server")]
-    pub fn emit_input_grab(&self, active: bool, devices: Vec<String>, reason: Option<String>) {
+    pub fn emit_input_grab(&mut self, active: bool, devices: Vec<String>, reason: Option<String>) {
+        // Cache the latest status unconditionally (even when the TCP server is
+        // disabled) so a later `RequestInputGrab` can answer with ground truth.
+        // This always reflects the most recently emitted status.
+        self.last_input_grab = Some((active, devices.clone(), reason.clone()));
+
         if let Some(tx) = &self.tcp_notify_tx {
             match tx.try_send(ServerMessage::InputGrab {
                 active,
@@ -3373,6 +3390,9 @@ mod tcp_layer_change_tests {
         )
         .expect("failed to parse cfg");
 
+        // Nothing emitted yet => no cached status for RequestInputGrab to read.
+        assert!(k.last_input_grab.is_none());
+
         // Wire the notification channel exactly like main.rs does.
         let (tx, rx) = sync_channel::<ServerMessage>(10);
         k.tcp_notify_tx = Some(tx);
@@ -3389,6 +3409,16 @@ mod tcp_layer_change_tests {
             "{\"InputGrab\":{\"active\":true,\"devices\":[\"Apple Internal Keyboard / Trackpad\"]}}\n"
         );
 
+        // The cache (what RequestInputGrab reads back) reflects the last emit.
+        assert_eq!(
+            k.last_input_grab,
+            Some((
+                true,
+                vec!["Apple Internal Keyboard / Trackpad".to_string()],
+                None
+            ))
+        );
+
         // Failure: grab inactive, empty devices, with a reason.
         k.emit_input_grab(
             false,
@@ -3401,12 +3431,27 @@ mod tcp_layer_change_tests {
             "{\"InputGrab\":{\"active\":false,\"devices\":[],\"reason\":\"another process has exclusive grab\"}}\n"
         );
 
+        // Cache tracks the failure status too.
+        assert_eq!(
+            k.last_input_grab,
+            Some((
+                false,
+                vec![],
+                Some("another process has exclusive grab".to_string())
+            ))
+        );
+
         // No notification sender => no panic, nothing emitted (TCP disabled).
         // Dropping the sender closes the channel, so the receiver reports it as
-        // disconnected (and never as a delivered message).
+        // disconnected (and never as a delivered message). The cache is still
+        // updated so RequestInputGrab works even when broadcasts are disabled.
         k.tcp_notify_tx = None;
         k.emit_input_grab(true, vec!["x".to_string()], None);
         assert!(matches!(rx.try_recv(), Err(TryRecvError::Disconnected)));
+        assert_eq!(
+            k.last_input_grab,
+            Some((true, vec!["x".to_string()], None))
+        );
     }
 
     #[test]
