@@ -152,6 +152,16 @@ pub enum ClientMessage {
     RequestFakeKeyNames {},
     RequestCurrentLayerInfo {},
     RequestCurrentLayerName {},
+    /// Request the current authoritative input-grab status on demand.
+    ///
+    /// The server normally emits `ServerMessage::InputGrab` only on grab-state
+    /// transitions (startup resolution and subsequent changes). A client that
+    /// connects after startup misses that one-shot signal, so it can send this
+    /// to fetch the last known status. The response is a `ServerMessage::InputGrab`
+    /// identical in shape to the transition-emitted one. If the grab has not yet
+    /// resolved (nothing cached), the server sends no response (the client falls
+    /// back to its own detection).
+    RequestInputGrab {},
     ActOnFakeKey {
         name: String,
         action: FakeKeyActionMessage,
@@ -285,6 +295,18 @@ mod tests {
 
         let json = r#"{"ActOnFakeKey":{"name":"test","action":"Tap"}}"#;
         let _msg: ClientMessage = serde_json::from_str(json).unwrap();
+    }
+
+    #[test]
+    fn test_request_input_grab_round_trip() {
+        // Wire format the Swift client sends after Hello.
+        let json = r#"{"RequestInputGrab":{}}"#;
+        let msg: ClientMessage = serde_json::from_str(json).unwrap();
+        assert!(matches!(msg, ClientMessage::RequestInputGrab {}));
+
+        // Serializes back to the canonical empty-struct form.
+        let serialized = serde_json::to_string(&ClientMessage::RequestInputGrab {}).unwrap();
+        assert_eq!(serialized, json);
     }
 
     #[test]
