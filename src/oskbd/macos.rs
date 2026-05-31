@@ -650,10 +650,11 @@ impl KbdIn {
                 .filter(|k| !excluded_names.iter().any(|n| *k == n.as_str()))
                 .filter(|k| !is_skipped_virtual_device(&k.product_key))
                 .map(|k| {
-                    if k.product_key.trim().is_empty() {
+                    let name = sanitize_device_name(&k.product_key);
+                    if name.is_empty() {
                         format!("{:x}", k.hash)
                     } else {
-                        k.product_key.clone()
+                        name
                     }
                 })
                 .collect::<Vec<String>>();
@@ -790,10 +791,14 @@ impl KbdIn {
                 );
             }
             let mut registered_names = Vec::new();
-            for name in names {
-                if device_matches(name) && register_device(name) {
+            for raw_name in names {
+                let name = sanitize_device_name(raw_name);
+                if name.is_empty() {
+                    continue;
+                }
+                if device_matches(&name) && register_device(&name) {
                     log::info!("Device '{name}' appeared and was registered");
-                    registered_names.push(name.clone());
+                    registered_names.push(name);
                 }
             }
             if !registered_names.is_empty() {
@@ -835,6 +840,15 @@ fn is_skipped_virtual_device(product_key: &str) -> bool {
     SKIPPED_VIRTUAL_DEVICE_SUBSTRINGS
         .iter()
         .any(|needle| lower.contains(needle))
+}
+
+/// Strip embedded NUL bytes and non-UTF8 replacement chars from a device name
+/// so that `CString::new` inside karabiner-driverkit won't panic.
+fn sanitize_device_name(name: &str) -> String {
+    name.replace('\0', "")
+        .replace('\u{FFFD}', "")
+        .trim()
+        .to_string()
 }
 
 /// Build a mapping from device hashes to configured device IDs by matching
@@ -890,20 +904,18 @@ fn validate_and_register_devices(include_names: &[String]) -> Vec<String> {
     include_names
         .iter()
         .filter_map(|dev| {
-            // Defensive check: skip empty device names that could cause crashes
-            if dev.trim().is_empty() {
+            let dev = sanitize_device_name(dev);
+            if dev.is_empty() {
                 log::warn!("Skipping empty device name (likely old keyboard without proper identification)");
                 return None;
             }
 
-            // Also skip the Karabiner device
-            // driverkit already prevents registering it, but this avoids unnecessary warnings
             if dev.to_lowercase().contains("karabiner") {
                 return None;
             }
 
-            match device_matches(dev) {
-                true => Some(dev.to_string()),
+            match device_matches(&dev) {
+                true => Some(dev),
                 false => {
                     log::warn!("'{dev}' doesn't match any connected device");
                     None
@@ -912,7 +924,7 @@ fn validate_and_register_devices(include_names: &[String]) -> Vec<String> {
         })
         .filter_map(|dev| {
             if register_device(&dev) {
-                Some(dev.to_string())
+                Some(dev)
             } else {
                 log::warn!("Couldn't register device '{}' - device may be in use by another application or disconnected", dev);
                 None
