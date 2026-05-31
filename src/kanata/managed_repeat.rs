@@ -53,6 +53,10 @@ impl ManagedRepeatState {
     pub fn is_idle(&self) -> bool {
         self.timers.is_empty()
     }
+
+    pub fn clear_timers(&mut self) {
+        self.timers.clear();
+    }
 }
 
 impl Kanata {
