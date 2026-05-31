@@ -670,10 +670,11 @@ impl KbdIn {
                 .filter(|k| !excluded.iter().any(|n| *k == n.as_str()))
                 .filter(|k| !is_skipped_virtual_device(&k.product_key))
                 .map(|k| {
-                    if k.product_key.trim().is_empty() {
+                    let name = sanitize_device_name(&k.product_key);
+                    if name.is_empty() {
                         format!("{:x}", k.hash)
                     } else {
-                        k.product_key.clone()
+                        name
                     }
                 })
                 .collect::<Vec<String>>();
@@ -790,7 +791,11 @@ impl KbdIn {
             std::thread::sleep(std::time::Duration::from_secs(2));
             let mut registered_names = Vec::new();
             for name in &deferred_names {
-                if device_matches(name) && register_device(name) {
+                let name = sanitize_device_name(name);
+                if name.is_empty() {
+                    continue;
+                }
+                if device_matches(&name) && register_device(&name) {
                     log::info!("Device '{name}' appeared and was registered");
                     registered_names.push(name.clone());
                 }
@@ -833,6 +838,15 @@ fn is_skipped_virtual_device(product_key: &str) -> bool {
     SKIPPED_VIRTUAL_DEVICE_SUBSTRINGS
         .iter()
         .any(|needle| lower.contains(needle))
+}
+
+/// Strip embedded NUL bytes and non-UTF8 replacement chars from a device name
+/// so that `CString::new` inside karabiner-driverkit won't panic.
+fn sanitize_device_name(name: &str) -> String {
+    name.replace('\0', "")
+        .replace('\u{FFFD}', "")
+        .trim()
+        .to_string()
 }
 
 /// Build a mapping from device hashes to configured device IDs by matching
@@ -888,20 +902,18 @@ fn validate_and_register_devices(include_names: Vec<String>) -> Vec<String> {
     include_names
         .iter()
         .filter_map(|dev| {
-            // Defensive check: skip empty device names that could cause crashes
-            if dev.trim().is_empty() {
+            let dev = sanitize_device_name(dev);
+            if dev.is_empty() {
                 log::warn!("Skipping empty device name (likely old keyboard without proper identification)");
                 return None;
             }
 
-            // Also skip the Karabiner device
-            // driverkit already prevents registering it, but this avoids unnecessary warnings
             if dev.to_lowercase().contains("karabiner") {
                 return None;
             }
 
-            match device_matches(dev) {
-                true => Some(dev.to_string()),
+            match device_matches(&dev) {
+                true => Some(dev),
                 false => {
                     log::warn!("'{dev}' doesn't match any connected device");
                     None
@@ -910,7 +922,7 @@ fn validate_and_register_devices(include_names: Vec<String>) -> Vec<String> {
         })
         .filter_map(|dev| {
             if register_device(&dev) {
-                Some(dev.to_string())
+                Some(dev)
             } else {
                 log::warn!("Couldn't register device '{}' - device may be in use by another application or disconnected", dev);
                 None
@@ -927,15 +939,16 @@ fn register_devices_with_deferred(include_names: Vec<String>) -> (Vec<String>, V
     let mut deferred = Vec::new();
 
     for dev in &include_names {
-        if dev.trim().is_empty() || dev.to_lowercase().contains("karabiner") {
+        let dev = sanitize_device_name(dev);
+        if dev.is_empty() || dev.to_lowercase().contains("karabiner") {
             continue;
         }
-        if register_device(dev) {
+        if register_device(&dev) {
             log::info!("Device '{dev}' registered (currently connected)");
-            registered.push(dev.clone());
+            registered.push(dev);
         } else {
             log::info!("Device '{dev}' not currently connected, will wait for it");
-            deferred.push(dev.clone());
+            deferred.push(dev);
         }
     }
 
