@@ -294,6 +294,13 @@ impl Kanata {
                 kanata
                     .kbd_out
                     .release_tracked_output_keys("output-backend-recovery");
+                // Clear keyberon layout state so keys held at disconnect
+                // don't appear permanently stuck (no Release event arrives
+                // because the physical key-up happened while ungrabbed).
+                release_normalkey_states(kanata.layout.bm());
+                if let Some(ref mut mrs) = kanata.managed_repeat_state {
+                    mrs.clear_timers();
+                }
             }
             PRESSED_KEYS.lock().clear();
 
