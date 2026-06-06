@@ -373,6 +373,7 @@ use std::io;
 use kanata_keyberon::key_code::KeyCode;
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct Outputs {
     pub events: Vec<String>,
@@ -417,6 +418,7 @@ impl Outputs {
 pub struct KbdOut {
     pub log: LogFmt,
     pub outputs: Outputs,
+    output_suspended: AtomicBool,
 }
 
 impl KbdOut {
@@ -424,6 +426,7 @@ impl KbdOut {
         Ok(Self {
             log: LogFmt::new(),
             outputs: Outputs::new(),
+            output_suspended: AtomicBool::new(false),
         })
     }
 
@@ -452,6 +455,15 @@ impl KbdOut {
     }
     pub fn output_ready(&self) -> bool {
         true
+    }
+    pub fn output_suspended(&self) -> bool {
+        self.output_suspended.load(Ordering::Relaxed)
+    }
+    pub fn suspend_output(&self, _reason: &str) {
+        self.output_suspended.store(true, Ordering::Relaxed);
+    }
+    pub fn resume_output(&self, _reason: &str) {
+        self.output_suspended.store(false, Ordering::Relaxed);
     }
     pub fn wait_until_ready(&self, _timeout: Option<std::time::Duration>) -> bool {
         true

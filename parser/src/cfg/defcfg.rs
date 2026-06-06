@@ -140,6 +140,7 @@ pub struct CfgOptions {
     pub block_unmapped_keys: bool,
     pub allow_hardware_repeat: bool,
     pub managed_repeat: bool,
+    pub managed_repeat_unlisted: bool,
     pub managed_repeat_delay: u16,
     pub managed_repeat_interval: u16,
     pub managed_repeat_overrides: Vec<ManagedRepeatOverride>,
@@ -192,6 +193,7 @@ impl Default for CfgOptions {
             block_unmapped_keys: false,
             allow_hardware_repeat: true,
             managed_repeat: false,
+            managed_repeat_unlisted: true,
             managed_repeat_delay: 600,
             managed_repeat_interval: 33,
             managed_repeat_overrides: Vec::new(),
@@ -848,6 +850,9 @@ pub fn parse_defcfg(expr: &[SExpr]) -> Result<CfgOptions> {
                         cfg.allow_hardware_repeat = parse_defcfg_val_bool(val, label)?
                     }
                     "managed-repeat" => cfg.managed_repeat = parse_defcfg_val_bool(val, label)?,
+                    "managed-repeat-unlisted" => {
+                        cfg.managed_repeat_unlisted = parse_defcfg_val_bool(val, label)?
+                    }
                     "managed-repeat-delay" => {
                         cfg.managed_repeat_delay = parse_cfg_val_u16(val, label, true)?
                     }
