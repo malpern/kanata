@@ -162,7 +162,7 @@ fn managed_repeat_state_swap_picks_up_new_timing() {
 
     // Swap in new state with fast timing (delay=8, interval=4).
     // This is what do_live_reload now does.
-    let new_state = ManagedRepeatState::new(8, 4);
+    let new_state = ManagedRepeatState::new(8, 4, true);
     // No per-key overrides for this test.
     k.managed_repeat_state = Some(new_state);
 
@@ -219,4 +219,108 @@ fn managed_repeat_disable_on_reload_cancels_repeat() {
 
     assert!(k.managed_repeat_state.is_none());
     assert!(k.allow_hardware_repeat);
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+fn managed_repeat_output_suspension_clears_repeat_timers() {
+    init_log();
+    let _lk = match CFG_PARSE_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let mut k = Kanata::new_from_str(
+        "
+         (defcfg managed-repeat yes managed-repeat-delay 8 managed-repeat-interval 4)
+         (defsrc a)
+         (deflayer base a)
+        ",
+        Default::default(),
+    )
+    .expect("cfg parses");
+
+    let key_a = str_to_oscode("a").unwrap();
+    k.handle_input_event(&KeyEvent::new(key_a, KeyValue::Press))
+        .unwrap();
+    crate::PRESSED_KEYS.lock().insert(key_a);
+    for _ in 0..12 {
+        let _ = k.tick_ms(1, &None);
+    }
+
+    let downs_before = k
+        .kbd_out
+        .outputs
+        .events
+        .iter()
+        .filter(|e| *e == "out:↓A")
+        .count();
+    assert!(
+        downs_before >= 2,
+        "expected repeat before suspension: {:?}",
+        k.kbd_out.outputs.events
+    );
+
+    k.kbd_out.suspend_output("test");
+    let events_at_suspend = k.kbd_out.outputs.events.len();
+    for _ in 0..20 {
+        let _ = k.tick_ms(1, &None);
+    }
+
+    assert_eq!(
+        events_at_suspend,
+        k.kbd_out.outputs.events.len(),
+        "no repeat events should be emitted while output is suspended: {:?}",
+        k.kbd_out.outputs.events
+    );
+}
+
+#[test]
+fn managed_repeat_unlisted_false_repeats_listed_key_only() {
+    let result = simulate(
+        "
+         (defcfg
+           managed-repeat yes
+           managed-repeat-unlisted no
+           managed-repeat-delay 8
+           managed-repeat-interval 4
+         )
+         (defsrc a b)
+         (deflayer base a b)
+         (defrepeat
+           (a 8 4)
+         )
+        ",
+        "d:a t:20 u:a t:1 d:b t:20 u:b t:1",
+    );
+    let events: Vec<&str> = result.split('\n').collect();
+    let a_downs = events.iter().filter(|e| **e == "out:↓A").count();
+    let b_downs = events.iter().filter(|e| **e == "out:↓B").count();
+
+    assert!(
+        a_downs >= 3,
+        "listed A should repeat with allowlist mode: {result}"
+    );
+    assert_eq!(
+        1, b_downs,
+        "unlisted B should not use managed repeat in allowlist mode: {result}"
+    );
+}
+
+#[test]
+fn managed_repeat_unlisted_defaults_to_previous_behavior() {
+    let result = simulate(
+        "
+         (defcfg managed-repeat yes managed-repeat-delay 8 managed-repeat-interval 4)
+         (defsrc b)
+         (deflayer base b)
+        ",
+        "d:b t:20 u:b t:1",
+    );
+    let events: Vec<&str> = result.split('\n').collect();
+    let b_downs = events.iter().filter(|e| **e == "out:↓B").count();
+
+    assert!(
+        b_downs >= 3,
+        "unlisted keys should still repeat by default for compatibility: {result}"
+    );
 }

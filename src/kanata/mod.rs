@@ -572,6 +572,7 @@ impl Kanata {
                 let mut state = ManagedRepeatState::new(
                     cfg.options.managed_repeat_delay,
                     cfg.options.managed_repeat_interval,
+                    cfg.options.managed_repeat_unlisted,
                 );
                 for ovr in &cfg.options.managed_repeat_overrides {
                     state.add_override(ovr.key, ovr.delay, ovr.interval);
@@ -746,6 +747,7 @@ impl Kanata {
                 let mut state = ManagedRepeatState::new(
                     cfg.options.managed_repeat_delay,
                     cfg.options.managed_repeat_interval,
+                    cfg.options.managed_repeat_unlisted,
                 );
                 for ovr in &cfg.options.managed_repeat_overrides {
                     state.add_override(ovr.key, ovr.delay, ovr.interval);
@@ -853,6 +855,7 @@ impl Kanata {
             let mut state = ManagedRepeatState::new(
                 cfg.options.managed_repeat_delay,
                 cfg.options.managed_repeat_interval,
+                cfg.options.managed_repeat_unlisted,
             );
             for ovr in &cfg.options.managed_repeat_overrides {
                 state.add_override(ovr.key, ovr.delay, ovr.interval);

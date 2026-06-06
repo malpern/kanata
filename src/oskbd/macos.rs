@@ -1005,6 +1005,7 @@ impl TryFrom<KeyEvent> for InputEvent {
 #[cfg(all(not(feature = "simulated_output"), not(feature = "passthru_ahk")))]
 pub struct KbdOut {
     output_pressed_since: HashMap<OsCode, Instant>,
+    output_suspended: std::sync::atomic::AtomicBool,
 }
 
 /// Treat a sink-disconnect from the processing thread as a non-fatal drop.
@@ -1020,8 +1021,10 @@ fn drop_if_sink_disconnected(
     err: io::Error,
     key: OsCode,
     value: KeyValue,
+    output_suspended: &std::sync::atomic::AtomicBool,
 ) -> Result<(), io::Error> {
     if err.kind() == io::ErrorKind::NotConnected {
+        output_suspended.store(true, std::sync::atomic::Ordering::Relaxed);
         log::warn!("dropping {key:?} {value:?}: output backend unavailable (will recover)");
         Ok(())
     } else {
@@ -1034,6 +1037,7 @@ impl KbdOut {
     pub fn new() -> Result<Self, io::Error> {
         Ok(KbdOut {
             output_pressed_since: HashMap::default(),
+            output_suspended: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -1052,6 +1056,29 @@ impl KbdOut {
 
     pub fn output_ready(&self) -> bool {
         is_sink_ready()
+    }
+
+    pub fn output_suspended(&self) -> bool {
+        self.output_suspended
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn suspend_output(&self, reason: &str) {
+        if !self
+            .output_suspended
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            log::warn!("output backend suspended: {reason}");
+        }
+    }
+
+    pub fn resume_output(&self, reason: &str) {
+        if self
+            .output_suspended
+            .swap(false, std::sync::atomic::Ordering::Relaxed)
+        {
+            log::info!("output backend resumed: {reason}");
+        }
     }
 
     pub fn wait_until_ready(&self, timeout: Option<Duration>) -> bool {
@@ -1096,7 +1123,7 @@ impl KbdOut {
                     self.record_output_transition_after_write(key, value);
                     Ok(())
                 }
-                Err(e) => drop_if_sink_disconnected(e, key, value),
+                Err(e) => drop_if_sink_disconnected(e, key, value, &self.output_suspended),
             }
         } else {
             log::debug!("couldn't write unrecognized {key:?}");
@@ -1112,7 +1139,7 @@ impl KbdOut {
         if let Ok(event) = InputEvent::try_from(KeyEvent::new(key, value)) {
             match self.write(event) {
                 Ok(()) => Ok(()),
-                Err(e) => drop_if_sink_disconnected(e, key, value),
+                Err(e) => drop_if_sink_disconnected(e, key, value, &self.output_suspended),
             }
         } else {
             log::debug!("couldn't write unrecognized OsCode {code}");

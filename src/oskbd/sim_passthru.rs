@@ -77,6 +77,11 @@ impl KbdOut {
     pub fn output_ready(&self) -> bool {
         true
     }
+    pub fn output_suspended(&self) -> bool {
+        false
+    }
+    pub fn suspend_output(&self, _reason: &str) {}
+    pub fn resume_output(&self, _reason: &str) {}
     pub fn wait_until_ready(&self, _timeout: Option<std::time::Duration>) -> bool {
         true
     }

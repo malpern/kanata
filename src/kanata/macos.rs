@@ -151,6 +151,7 @@ impl Kanata {
                 // Check output health before blocking on input
                 if !kanata.lock().kbd_out.output_ready() {
                     log::warn!("output backend unavailable — releasing input devices");
+                    kanata.lock().kbd_out.suspend_output("output-ready-check");
                     break true;
                 }
 
@@ -253,6 +254,19 @@ impl Kanata {
                 break Ok(());
             }
 
+            {
+                let mut kanata = kanata.lock();
+                kanata.kbd_out.suspend_output("recovery-entry");
+                kanata
+                    .kbd_out
+                    .release_tracked_output_keys("output-backend-loss");
+                release_normalkey_states(kanata.layout.bm());
+                if let Some(ref mut mrs) = kanata.managed_repeat_state {
+                    mrs.clear_timers();
+                }
+            }
+            PRESSED_KEYS.lock().clear();
+
             // --- Release input so the keyboard works normally (unseized) ---
             kb.release_input();
 
@@ -301,6 +315,7 @@ impl Kanata {
                 if let Some(ref mut mrs) = kanata.managed_repeat_state {
                     mrs.clear_timers();
                 }
+                kanata.kbd_out.resume_output("output-backend-recovery");
             }
             PRESSED_KEYS.lock().clear();
 

@@ -27,15 +27,17 @@ pub struct ManagedRepeatState {
     overrides: HashMap<OsCode, (u16, u16)>,
     default_delay: u16,
     default_interval: u16,
+    repeat_unlisted: bool,
 }
 
 impl ManagedRepeatState {
-    pub fn new(default_delay: u16, default_interval: u16) -> Self {
+    pub fn new(default_delay: u16, default_interval: u16, repeat_unlisted: bool) -> Self {
         Self {
             timers: HashMap::default(),
             overrides: HashMap::default(),
             default_delay,
             default_interval,
+            repeat_unlisted,
         }
     }
 
@@ -43,11 +45,15 @@ impl ManagedRepeatState {
         self.overrides.insert(osc, (delay, interval));
     }
 
-    fn timing_for(&self, osc: OsCode) -> (u16, u16) {
-        self.overrides
-            .get(&osc)
-            .copied()
-            .unwrap_or((self.default_delay, self.default_interval))
+    fn timing_for(&self, osc: OsCode) -> Option<(u16, u16)> {
+        if let Some(timing) = self.overrides.get(&osc).copied() {
+            return Some(timing);
+        }
+        if self.repeat_unlisted {
+            Some((self.default_delay, self.default_interval))
+        } else {
+            None
+        }
     }
 
     pub fn is_idle(&self) -> bool {
@@ -66,6 +72,12 @@ impl Kanata {
             None => return Ok(()),
         };
 
+        #[cfg(target_os = "macos")]
+        if self.kbd_out.output_suspended() {
+            state.clear_timers();
+            return Ok(());
+        }
+
         // Remove timers for keys no longer in cur_keys (physically released).
         state.timers.retain(|_osc, timer| {
             let kc: KeyCode = timer.osc.into();
@@ -81,7 +93,9 @@ impl Kanata {
             if state.timers.contains_key(&osc) {
                 continue;
             }
-            let (delay, interval) = state.timing_for(osc);
+            let Some((delay, interval)) = state.timing_for(osc) else {
+                continue;
+            };
             state.timers.insert(
                 osc,
                 RepeatTimer {
