@@ -151,3 +151,9 @@ opt-level = "z"
 lto = "fat"
 panic = "abort"
 codegen-units = 1
+
+# KeyPath: vendored copy of karabiner-driverkit with a virtual-keyboard reset
+# on reconnect, so a key Release lost in a dying daemon socket cannot leave a
+# key stuck down and autorepeating (MAL-57 Layer 2). See driverkit/c_src/driverkit.cpp.
+[patch.crates-io]
+karabiner-driverkit = { path = "driverkit" }
