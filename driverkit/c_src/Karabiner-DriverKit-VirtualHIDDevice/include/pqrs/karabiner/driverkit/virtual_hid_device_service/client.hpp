@@ -12,6 +12,10 @@
 #include <pqrs/dispatcher.hpp>
 #include <pqrs/hid.hpp>
 #include <pqrs/local_datagram.hpp>
+#include <chrono>
+#include <cstdio>
+#include <ctime>
+#include <iostream>
 #include <sstream>
 #include <unistd.h>
 
@@ -227,6 +231,21 @@ private:
     client_->next_heartbeat_deadline_exceeded.connect([this](auto&& sender_endpoint) {
       enqueue_to_dispatcher([this] {
         if (client_) {
+          // KeyPath (MAL-57 telemetry): this silent stop/start was the one
+          // disconnect path with no log line — incidents could only be
+          // attributed to it by eliminating the others. Keep the format in
+          // sync with log_ts() in driverkit.cpp.
+          {
+            using namespace std::chrono;
+            auto now = system_clock::now();
+            auto ms = duration_cast<milliseconds>(now.time_since_epoch()) % 1000;
+            std::time_t t = system_clock::to_time_t(now);
+            std::tm tm{};
+            localtime_r(&t, &tm);
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%02d:%02d:%02d.%03d", tm.tm_hour, tm.tm_min, tm.tm_sec, static_cast<int>(ms.count()));
+            std::cout << buf << " vhid-client: daemon heartbeat deadline exceeded — restarting connection" << std::endl;
+          }
           async_stop();
           async_start();
         }
