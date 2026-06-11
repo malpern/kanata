@@ -1,14 +1,41 @@
 #include "driverkit.hpp"
+#include <chrono>
+#include <cstdio>
+#include <ctime>
 #include <exception>
+#include <string>
+
+// KeyPath (MAL-57 telemetry): local-time HH:MM:SS.mmm prefix for the status
+// lines this file prints to the daemon's stdout log. Without it, connection
+// events can only be dated by adjacency with kanata's own (stamped) log lines.
+static std::string log_ts() {
+    using namespace std::chrono;
+    auto now = system_clock::now();
+    auto ms = duration_cast<milliseconds>(now.time_since_epoch()) % 1000;
+    std::time_t t = system_clock::to_time_t(now);
+    std::tm tm{};
+    localtime_r(&t, &tm);
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%02d:%02d:%02d.%03d vhid-client:", tm.tm_hour, tm.tm_min, tm.tm_sec, static_cast<int>(ms.count()));
+    return buf;
+}
 
 template<typename T>
 int send_key(T& keyboard, struct DKEvent* e) {
+    // KeyPath (MAL-57 Layer 3): the insert/erase below must run even when the
+    // sink is unready, so the full-state report set always tracks intent. If
+    // a Release is dropped while unready and the set is NOT updated, the next
+    // successful report re-presses the stale key — and since the caller
+    // believes it is released, no release ever follows (indefinite stuck
+    // key). Only the post is skipped when unready; the next successful
+    // report then carries the correct complete state.
     if(e->value == 1) keyboard.keys.insert(e->code);
     else if(e->value == 0) keyboard.keys.erase(e->code);
     else return 1;
     #ifdef USE_KEXT
     return pqrs::karabiner_virtual_hid_device_methods::post_keyboard_input_report(connect, keyboard);
     #else
+    if(!sink_ready.load(std::memory_order_acquire)) return 2;
     client->async_post_report(keyboard);
     return 0;
     #endif
@@ -98,7 +125,7 @@ int init_sink() {
         auto copy = client;
 
         client->connected.connect([copy] {
-            std::cout << "connected" << std::endl;
+            std::cout << log_ts() << " connected" << std::endl;
             pqrs::karabiner::driverkit::virtual_hid_device_service::virtual_hid_keyboard_parameters parameters;
             parameters.set_country_code(pqrs::hid::country_code::us);
             copy->async_virtual_hid_keyboard_initialize(parameters);
@@ -109,7 +136,7 @@ int init_sink() {
             // The daemon pushes this status roughly once per second; only log
             // transitions to keep the daemon stdout log readable.
             if (was_ready != ready)
-                std::cout << "virtual_hid_keyboard_ready " << ready << std::endl;
+                std::cout << log_ts() << " virtual_hid_keyboard_ready " << ready << std::endl;
             if (ready && !was_ready) {
                 // A false->true transition means the socket or the virtual
                 // keyboard was rebuilt. Any report lost in transit on the old
@@ -120,29 +147,29 @@ int init_sink() {
                 // next posted report re-asserts keys that are genuinely still
                 // held, since reports carry absolute full state.
                 copy->async_virtual_hid_keyboard_reset();
-                std::cout << "virtual_hid_keyboard_reset sent after ready transition" << std::endl;
+                std::cout << log_ts() << " virtual_hid_keyboard_reset sent after ready transition" << std::endl;
             }
         });
 
         client->closed.connect([] {
-            std::cout << "closed" << std::endl;
+            std::cout << log_ts() << " closed" << std::endl;
             sink_ready.store(false, std::memory_order_release);
         });
 
         client->connect_failed.connect([](auto&& error_code) {
-            std::cout << "connect_failed " << error_code << std::endl;
+            std::cout << log_ts() << " connect_failed " << error_code << std::endl;
             sink_ready.store(false, std::memory_order_release);
         });
 
         client->error_occurred.connect([](auto&& error_code) {
-            std::cout << "error_occurred " << error_code << std::endl;
+            std::cout << log_ts() << " error_occurred " << error_code << std::endl;
             sink_ready.store(false, std::memory_order_release);
         });
 
         client->driver_activated.connect([](auto&& driver_activated) {
             static std::optional<bool> previous_value;
             if (previous_value != driver_activated) {
-                std::cout << "driver activated: " << std::boolalpha  << driver_activated << std::endl;
+                std::cout << log_ts() << " driver activated: " << std::boolalpha  << driver_activated << std::endl;
                 previous_value = driver_activated;
             }
         });
@@ -150,7 +177,7 @@ int init_sink() {
         client->driver_connected.connect([](auto&& driver_connected) {
             static std::optional<bool> previous_value;
             if (previous_value != driver_connected) {
-                std::cout << "driver connected: " << driver_connected << std::endl;
+                std::cout << log_ts() << " driver connected: " << driver_connected << std::endl;
                 previous_value = driver_connected;
             }
         });
@@ -158,7 +185,7 @@ int init_sink() {
         client->driver_version_mismatched.connect([](auto&& driver_version_mismatched) {
             static std::optional<bool> previous_value;
             if (previous_value != driver_version_mismatched) {
-                std::cout << "driver version matched: " << !driver_version_mismatched << std::endl;
+                std::cout << log_ts() << " driver version matched: " << !driver_version_mismatched << std::endl;
                 previous_value = driver_version_mismatched;
             }
         });
@@ -464,7 +491,9 @@ extern "C" {
         else
             return 1;
         #else
-        if(!sink_ready.load(std::memory_order_acquire)) return 2;
+        // KeyPath (MAL-57 Layer 3): the unready check lives inside the
+        // template, AFTER the report-set mutation. Do not re-add an early
+        // return here — it would skip the mutation and desync the set.
         auto usage_page = pqrs::hid::usage_page::value_t(e->page);
         if(usage_page == pqrs::hid::usage_page::keyboard_or_keypad)
             return send_key(keyboard, e);
