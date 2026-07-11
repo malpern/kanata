@@ -35,9 +35,7 @@ pub(crate) fn list_devices_macos() {
     for kb in kb_list.iter() {
         println!(
             "0x{:<18X} {:<10} {:<10} {:04X}:{:04X}    {}",
-            kb.hash, kb.vendor_id, kb.product_id,
-            kb.vendor_id, kb.product_id,
-            kb.product_key
+            kb.hash, kb.vendor_id, kb.product_id, kb.vendor_id, kb.product_id, kb.product_key
         );
     }
     print_line();

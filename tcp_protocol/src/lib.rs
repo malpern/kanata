@@ -455,7 +455,10 @@ mod tests {
                 reason,
             } => {
                 assert!(active);
-                assert_eq!(devices, vec!["Apple Internal Keyboard / Trackpad", "HHKB-Hybrid"]);
+                assert_eq!(
+                    devices,
+                    vec!["Apple Internal Keyboard / Trackpad", "HHKB-Hybrid"]
+                );
                 assert!(reason.is_none());
             }
             _ => panic!("Expected InputGrab"),
@@ -485,7 +488,10 @@ mod tests {
             } => {
                 assert!(!active);
                 assert!(devices.is_empty());
-                assert_eq!(reason.as_deref(), Some("another process has exclusive grab"));
+                assert_eq!(
+                    reason.as_deref(),
+                    Some("another process has exclusive grab")
+                );
             }
             _ => panic!("Expected InputGrab"),
         }

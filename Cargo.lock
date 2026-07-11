@@ -717,7 +717,7 @@ dependencies = [
 
 [[package]]
 name = "kanata"
-version = "1.12.0-prerelease-2"
+version = "1.12.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -776,7 +776,7 @@ dependencies = [
 
 [[package]]
 name = "kanata-keyberon"
-version = "0.1120.1"
+version = "0.1120.2"
 dependencies = [
  "arraydeque",
  "heapless",
@@ -796,7 +796,7 @@ dependencies = [
 
 [[package]]
 name = "kanata-parser"
-version = "0.1120.1"
+version = "0.1120.2"
 dependencies = [
  "anyhow",
  "bitflags 2.9.1",
@@ -830,7 +830,7 @@ dependencies = [
 
 [[package]]
 name = "kanata-tcp-protocol"
-version = "0.1120.1"
+version = "0.1120.2"
 dependencies = [
  "serde",
  "serde_derive",

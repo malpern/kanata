@@ -602,9 +602,7 @@ pub struct KbdIn {
 
 impl Drop for KbdIn {
     fn drop(&mut self) {
-        if self.grabbed {
-            release();
-        }
+        release();
     }
 }
 
@@ -649,25 +647,21 @@ impl KbdIn {
 
         // Based on the definition of include and exclude names, they should never be used together.
         // Kanata config parser should probably enforce this.
-        let (device_names, deferred_names) = if let Some(included_names) = include_names {
+        let has_device_filter = include_names.is_some() || exclude_names.is_some();
+        let (device_names, deferred_names) = if let Some(ref included_names) = include_names {
             if continue_if_no_devices {
                 register_devices_with_deferred(included_names)
             } else {
-                (validate_and_register_devices(included_names), vec![])
+                (validate_and_register_devices(included_names), Vec::new())
             }
-        } else {
-            // No include list: enumerate every device the driverkit iterator
-            // sees, drop any that are known-problematic (empty names, Sidecar
-            // virtual keyboards, etc., see `is_skipped_virtual_device`), then
-            // apply the user's exclude list on top. This replaces the former
-            // `register_device("")` catch-all, which silently seized Sidecar's
-            // virtual HID device and could abort the process during grab
-            // (issue #1342).
-            let excluded = exclude_names.unwrap_or_default();
+        } else if let Some(ref excluded_names) = exclude_names {
+            // Exclude list: enumerate devices, filter out excluded and
+            // known-problematic virtual devices (Sidecar, etc.), then
+            // register the remainder individually.
             let kb_list = fetch_devices();
             let devices_to_include = kb_list
                 .iter()
-                .filter(|k| !excluded.iter().any(|n| *k == n.as_str()))
+                .filter(|k| !excluded_names.iter().any(|n| *k == n.as_str()))
                 .filter(|k| !is_skipped_virtual_device(&k.product_key))
                 .map(|k| {
                     let name = sanitize_device_name(&k.product_key);
@@ -679,10 +673,15 @@ impl KbdIn {
                 })
                 .collect::<Vec<String>>();
 
-            (validate_and_register_devices(devices_to_include), vec![])
+            (
+                validate_and_register_devices(&devices_to_include),
+                Vec::new(),
+            )
+        } else {
+            (Vec::new(), Vec::new())
         };
 
-        if !device_names.is_empty() {
+        if !device_names.is_empty() || (!has_device_filter && register_device("")) {
             if grab() {
                 let device_hash_to_id = build_device_hash_to_id_map(input_devices);
                 Ok(Self {
@@ -714,12 +713,14 @@ impl KbdIn {
                     "No devices currently connected but listener started. \
                      Waiting for device connection via callback..."
                 );
-                Ok(Self { grabbed: false, device_hash_to_id: HashMap::new(), device_names: Vec::new() })
+                Ok(Self {
+                    grabbed: false,
+                    device_hash_to_id: build_device_hash_to_id_map(input_devices),
+                    device_names: Vec::new(),
+                })
             } else {
-                log::info!(
-                    "No devices registered yet. Polling for device connection..."
-                );
-                Self::poll_for_devices(deferred_names)
+                log::info!("No devices registered yet. Polling for device connection...");
+                Self::poll_for_devices(&deferred_names, input_devices)
             }
         } else {
             Err(anyhow!(
@@ -786,25 +787,35 @@ impl KbdIn {
         &self.device_names
     }
 
-    fn poll_for_devices(deferred_names: Vec<String>) -> Result<Self, anyhow::Error> {
+    fn poll_for_devices(
+        names: &[String],
+        input_devices: Option<&[(std::num::NonZeroU8, kanata_parser::cfg::InputDeviceMatcher)]>,
+    ) -> Result<Self, anyhow::Error> {
+        let mut poll_count: u32 = 0;
         loop {
             std::thread::sleep(std::time::Duration::from_secs(2));
+            poll_count += 1;
+            if poll_count.is_multiple_of(15) {
+                log::info!(
+                    "Still waiting for device(s): {:?} ({}s elapsed)",
+                    names,
+                    poll_count * 2
+                );
+            }
             let mut registered_names = Vec::new();
-            for name in &deferred_names {
+            for name in names {
                 let name = sanitize_device_name(name);
-                if name.is_empty() {
-                    continue;
-                }
-                if device_matches(&name) && register_device(&name) {
+                if !name.is_empty() && device_matches(&name) && register_device(&name) {
                     log::info!("Device '{name}' appeared and was registered");
-                    registered_names.push(name.clone());
+                    registered_names.push(name);
                 }
             }
             if !registered_names.is_empty() {
                 if grab() {
+                    let device_hash_to_id = build_device_hash_to_id_map(input_devices);
                     return Ok(Self {
                         grabbed: true,
-                        device_hash_to_id: HashMap::new(),
+                        device_hash_to_id,
                         device_names: registered_names,
                     });
                 }
@@ -898,7 +909,7 @@ fn build_device_hash_to_id_map(
     map
 }
 
-fn validate_and_register_devices(include_names: Vec<String>) -> Vec<String> {
+fn validate_and_register_devices(include_names: &[String]) -> Vec<String> {
     include_names
         .iter()
         .filter_map(|dev| {
@@ -934,11 +945,11 @@ fn validate_and_register_devices(include_names: Vec<String>) -> Vec<String> {
 /// Registers devices for a deferred grab when `continue_if_no_devices` is true.
 /// Returns (registered, deferred): devices that were registered now (connected)
 /// and device names that need polling (not currently connected).
-fn register_devices_with_deferred(include_names: Vec<String>) -> (Vec<String>, Vec<String>) {
+fn register_devices_with_deferred(include_names: &[String]) -> (Vec<String>, Vec<String>) {
     let mut registered = Vec::new();
     let mut deferred = Vec::new();
 
-    for dev in &include_names {
+    for dev in include_names {
         let dev = sanitize_device_name(dev);
         if dev.is_empty() || dev.to_lowercase().contains("karabiner") {
             continue;
@@ -1158,15 +1169,14 @@ impl KbdOut {
             return Ok(());
         }
 
-        let next_state = self.caps_lock_state.unwrap_or_else(|| {
-            get_hid_caps_lock_state().unwrap_or_else(|| {
-                log::warn!(
-                    "could not read current Caps Lock state before toggle; assuming it is off"
-                );
-                false
-            })
-        }) ^ true;
+        let next_state = !self.caps_lock_state.unwrap_or(false);
 
+        // Use IOHIDSetModifierLockState instead of the VirtualHID path for caps
+        // lock. macOS sends LED output reports to the originating HID device;
+        // the DriverKit virtual keyboard has no physical LED, so the physical
+        // keyboard LED would never update. IOHIDSetModifierLockState sets both
+        // the system modifier state (so apps see correct case) and drives the
+        // LED on the physical keyboard.
         set_hid_caps_lock_state(next_state)?;
         self.caps_lock_state = Some(next_state);
         Ok(())
@@ -1174,7 +1184,7 @@ impl KbdOut {
 
     pub fn write(&mut self, event: InputEvent) -> Result<(), io::Error> {
         if event.page == 0x07 && event.code == 0x39 {
-            log::debug!("Attempting to set Caps Lock state from {event:?}");
+            log::debug!("Caps Lock output: using IOHIDSetModifierLockState path for {event:?}");
             return self.write_caps_lock(event.value);
         }
 

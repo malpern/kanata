@@ -11,7 +11,10 @@ use std::path::{Path, PathBuf};
 /// Structured simulation event for JSON output.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "simulated_output", derive(Serialize))]
-#[cfg_attr(feature = "simulated_output", serde(tag = "type", rename_all = "lowercase"))]
+#[cfg_attr(
+    feature = "simulated_output",
+    serde(tag = "type", rename_all = "lowercase")
+)]
 pub enum SimEvent {
     Input {
         t: u64,
@@ -756,9 +759,11 @@ mod tests {
         assert_eq!(KbdOut::canonical_key_name(KeyCode::Equal), "eql");
         assert_eq!(KbdOut::canonical_key_name(KeyCode::Enter), "ret");
         assert_eq!(KbdOut::canonical_key_name(KeyCode::Space), "spc");
-        assert!(KbdOut::canonical_key_name(KeyCode::CapsLock)
-            .chars()
-            .all(|c| c.is_ascii()));
+        assert!(
+            KbdOut::canonical_key_name(KeyCode::CapsLock)
+                .chars()
+                .all(|c| c.is_ascii())
+        );
     }
 }
 

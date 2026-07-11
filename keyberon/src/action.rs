@@ -101,9 +101,11 @@ pub enum HoldTapConfig<'a> {
     ///    If [None], a generic reason will be inferred from the action.
     #[allow(clippy::type_complexity)]
     Custom(
-        &'a (dyn Fn(QueuedIter, KCoord) -> (Option<WaitingAction>, bool, Option<TapHoldReason>)
-                 + Send
-                 + Sync),
+        &'a (
+                dyn Fn(QueuedIter, KCoord) -> (Option<WaitingAction>, bool, Option<TapHoldReason>)
+                    + Send
+                    + Sync
+            ),
     ),
 }
 
