@@ -1112,7 +1112,12 @@ impl Kanata {
             }) {
                 log::warn!("[KeyInput] drop: channel full or disconnected: {e}");
             } else {
-                log::info!("[KeyInput] sent key={} action={:?} t={}", key_name, action, t);
+                log::info!(
+                    "[KeyInput] sent key={} action={:?} t={}",
+                    key_name,
+                    action,
+                    t
+                );
             }
         }
     }
@@ -2615,8 +2620,7 @@ impl Kanata {
                                         let layout = k.layout.bm();
                                         release_normalkey_states(layout);
                                         PRESSED_KEYS.lock().clear();
-                                        k.kbd_out
-                                            .release_tracked_output_keys("latency-soft-reset");
+                                        k.kbd_out.release_tracked_output_keys("latency-soft-reset");
                                         consecutive_slow_iters = 0;
                                     }
                                 } else {
@@ -2730,8 +2734,7 @@ impl Kanata {
                                         let layout = k.layout.bm();
                                         release_normalkey_states(layout);
                                         PRESSED_KEYS.lock().clear();
-                                        k.kbd_out
-                                            .release_tracked_output_keys("latency-soft-reset");
+                                        k.kbd_out.release_tracked_output_keys("latency-soft-reset");
                                         consecutive_slow_iters = 0;
                                     }
                                 } else {
@@ -3090,7 +3093,10 @@ pub fn handle_fakekey_action<'a, const C: usize, const R: usize, T>(
 
 #[cfg(feature = "tcp_server")]
 fn resolve_action_desc(desc: &str, layer_info: &[LayerInfo]) -> String {
-    if let Some(rest) = desc.strip_prefix("@layer-").or_else(|| desc.strip_prefix("@deflayer-")) {
+    if let Some(rest) = desc
+        .strip_prefix("@layer-")
+        .or_else(|| desc.strip_prefix("@deflayer-"))
+    {
         if let Ok(n) = rest.parse::<usize>() {
             if let Some(info) = layer_info.get(n) {
                 return format!("@{}", info.name);
@@ -3165,8 +3171,7 @@ fn clear_states_from_inactivity(
     idle_clear_happened: &mut bool,
 ) {
     const IDLE_CLEAR_SECS: u64 = 60;
-    if (now - last_input_time) > time::Duration::from_secs(IDLE_CLEAR_SECS)
-        && !*idle_clear_happened
+    if (now - last_input_time) > time::Duration::from_secs(IDLE_CLEAR_SECS) && !*idle_clear_happened
     {
         *idle_clear_happened = true;
         log::debug!("clearing keyberon normal key states due to inactivity");
@@ -3443,10 +3448,7 @@ mod tcp_layer_change_tests {
         k.tcp_notify_tx = None;
         k.emit_input_grab(true, vec!["x".to_string()], None);
         assert!(matches!(rx.try_recv(), Err(TryRecvError::Disconnected)));
-        assert_eq!(
-            k.last_input_grab,
-            Some((true, vec!["x".to_string()], None))
-        );
+        assert_eq!(k.last_input_grab, Some((true, vec!["x".to_string()], None)));
     }
 
     #[test]

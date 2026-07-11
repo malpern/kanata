@@ -44,7 +44,12 @@ impl Kanata {
         let continue_if_no_devices = k.continue_if_no_devices;
         drop(k);
 
-        let mut kb = match KbdIn::new(include_names, exclude_names, input_devices.as_deref(), continue_if_no_devices) {
+        let mut kb = match KbdIn::new(
+            include_names,
+            exclude_names,
+            input_devices.as_deref(),
+            continue_if_no_devices,
+        ) {
             Ok(kbd_in) => kbd_in,
             Err(e) => {
                 // Report authoritative grab failure to TCP clients before we
@@ -100,7 +105,6 @@ impl Kanata {
         } else {
             info!("no devices grabbed yet, waiting for device connection...");
         }
-
         // Emit authoritative grab status once the startup grab attempt has
         // resolved. `is_grabbed()` is ground truth from the OS seize layer.
         // When false here we are in the "continue_if_no_devices" deferred path:
@@ -316,7 +320,8 @@ impl Kanata {
 
             // Re-seize input devices using regrab_input() which creates a fresh
             // pipe and listener thread without re-initializing the sink client.
-            if !kb.regrab_input() {
+            let grabbed = kb.regrab_input();
+            if !grabbed && !continue_if_no_devices {
                 #[cfg(feature = "tcp_server")]
                 kanata.lock().emit_input_grab(
                     false,
@@ -326,15 +331,25 @@ impl Kanata {
                 bail!("failed to re-grab keyboard devices after DriverKit recovery");
             }
 
-            // Re-seize succeeded: report grab active again with the same device
-            // list (regrab re-seizes the same physical devices).
+            // Report the authoritative post-recovery grab state. With
+            // continue-if-no-devices enabled, recovery may legitimately leave
+            // Kanata waiting without a seized device.
             #[cfg(feature = "tcp_server")]
-            kanata
-                .lock()
-                .emit_input_grab(true, kb.grabbed_device_names().to_vec(), None);
+            kanata.lock().emit_input_grab(
+                grabbed,
+                if grabbed {
+                    kb.grabbed_device_names().to_vec()
+                } else {
+                    Vec::new()
+                },
+                None,
+            );
 
-            info!("keyboard grabbed, entering event processing loop");
-
+            if grabbed {
+                info!("keyboard grabbed, entering event processing loop");
+            } else {
+                info!("no devices grabbed after recovery, waiting for device connection...");
+            }
             // Back to the event processing loop.
         }
     }

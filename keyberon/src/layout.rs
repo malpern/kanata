@@ -147,8 +147,8 @@ where
     pub chord_tap_dance_tracker: crate::chord_tap_dance_tracker::ChordTapDanceTracker,
 }
 
-pub use crate::tap_hold_tracker::{HoldActivatedInfo, TapActivatedInfo, TapHoldReason};
 pub use crate::chord_tap_dance_tracker::{ChordResolvedInfo, TapDanceResolvedInfo};
+pub use crate::tap_hold_tracker::{HoldActivatedInfo, TapActivatedInfo, TapHoldReason};
 
 struct ActionDesc<'b, 'a, T: core::fmt::Debug>(&'b Action<'a, T>);
 
@@ -1399,8 +1399,7 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
                 .set_tap_activated(coord, &w.config, reason);
             match &w.config {
                 WaitingConfig::Chord(_) => {
-                    let mut keys =
-                        crate::chord_tap_dance_tracker::ChordKeyArray::new();
+                    let mut keys = crate::chord_tap_dance_tracker::ChordKeyArray::new();
                     let _ = keys.push_back(coord);
                     if let Some(ref pq) = pq {
                         for &c in pq.iter() {
@@ -1411,8 +1410,11 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
                         .set_chord_resolved(keys, &ActionDesc(tap));
                 }
                 WaitingConfig::TapDance(tds) => {
-                    self.chord_tap_dance_tracker
-                        .set_tap_dance_resolved(coord, tds.num_taps, &ActionDesc(tap));
+                    self.chord_tap_dance_tracker.set_tap_dance_resolved(
+                        coord,
+                        tds.num_taps,
+                        &ActionDesc(tap),
+                    );
                 }
                 WaitingConfig::HoldTap(..) => {}
             }
@@ -2520,6 +2522,9 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
                 let historical_coords = self.historical_inputs.iter_hevents();
                 let layers = self.trans_resolution_layer_order().into_iter();
                 let mut action_queue: ActionQueue<T> = Default::default();
+                if let Some(f) = sw.init_fn {
+                    f();
+                }
                 for ac in sw.actions(
                     active_keys,
                     active_coords,
@@ -5175,6 +5180,8 @@ mod test {
                 NoOp,
                 Switch(&switch::Switch {
                     cases: &[(&[], &Trans, BreakOrFallthrough::Break)],
+                    init_fn: None,
+                    callbacks: &[],
                 }),
             ]],
         ];
