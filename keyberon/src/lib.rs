@@ -3,8 +3,8 @@
 
 pub mod action;
 pub mod chord;
+pub mod chord_tap_dance_tracker;
 pub mod key_code;
 pub mod layout;
 mod multikey_buffer;
 pub mod tap_hold_tracker;
-pub mod chord_tap_dance_tracker;

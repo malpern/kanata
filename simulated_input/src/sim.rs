@@ -368,7 +368,9 @@ fn main_impl() -> Result<()> {
             }
         }
         if json_output {
-            let final_layer = k.layer_info.get(k.layout.b().current_layer())
+            let final_layer = k
+                .layer_info
+                .get(k.layout.b().current_layer())
                 .map(|info| info.name.clone());
             let result = k.kbd_out.build_simulation_result(final_layer);
             println!("{}", serde_json::to_string_pretty(&result)?);
