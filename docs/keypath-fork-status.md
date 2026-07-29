@@ -15,16 +15,11 @@ changes are therefore maintained in the separate local branch
 - `9fcaf6f` preserves output report state and resets the virtual keyboard after
   a DriverKit reconnect.
 
-For local validation, Cargo selects that checkout with:
+Kanata pins that DriverKit commit directly, so builds do not depend on a
+sibling checkout:
 
-```sh
-cargo test --workspace \
-  --config 'patch.crates-io.karabiner-driverkit.path="../driverkit-iohidqueue-upstream"'
-```
-
-Before this candidate replaces `keypath/bundled`, the DriverKit dependency must
-be pinned reproducibly to a reviewed fork commit or an accepted upstream
-release. Do not leave the production build dependent on a sibling checkout.
+`https://github.com/malpern/driverkit.git` at
+`9fcaf6fe5af0059466afcd4d6c9713fd10c0216c`.
 
 ## Retained KeyPath behavior
 
