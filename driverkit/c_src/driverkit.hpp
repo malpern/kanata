@@ -6,9 +6,13 @@
 #include <AvailabilityMacros.h>
 #include <filesystem> // Include this before virtual_hid_device_service.hpp to avoid compile error
 #include <IOKit/hid/IOHIDLib.h>
+#include <IOKit/hid/IOHIDQueue.h>
 #include <IOKit/hidsystem/IOHIDShared.h>
 #include <set>
 #include <unordered_map>
+#include <vector>
+
+#include "input_event_ordering.hpp"
 
 /* The name was changed from "Master" to "Main" in Apple SDK 12.0 (Monterey) */
 #if (MAC_OS_X_VERSION_MIN_REQUIRED < 120000) // Before macOS 12 Monterey
@@ -46,6 +50,10 @@ std::set<uint64_t> registered_devices_hashes;
 // close_registered_devices() must close the SAME ref that capture_device() opened;
 // creating a new ref via IOHIDDeviceCreate() and closing that does NOT release the seizure.
 std::unordered_map<uint64_t, IOHIDDeviceRef> opened_device_refs;
+// Each seized keyboard owns an IOHIDQueue. Draining the queue in one callback
+// preserves the report timestamp long enough to order modifiers and ordinary
+// keys from the same physical report before they cross the Rust FFI boundary.
+std::unordered_map<uint64_t, IOHIDQueueRef> input_queues;
 
 int fd[2];
 CFMutableDictionaryRef matching_dictionary = NULL;
@@ -82,7 +90,7 @@ void device_connected_callback(void* context, io_iterator_t iter);
 void fire_listener_thread();
 void init_keyboards_dictionary();
 void close_registered_devices();
-void input_callback(void* context, IOReturn result, void* sender, IOHIDValueRef value);
+void input_queue_callback(void* context, IOReturn result, void* sender);
 
 template <typename Func>
 bool consume_devices(Func consume);

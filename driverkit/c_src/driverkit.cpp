@@ -219,14 +219,35 @@ void fire_listener_thread() {
         } };
 }
 
-void input_callback(void* context, IOReturn result, void* sender, IOHIDValueRef value) {
-    struct DKEvent e;
-    IOHIDElementRef element = IOHIDValueGetElement(value);
-    e.value = IOHIDValueGetIntegerValue(value);
-    e.page = IOHIDElementGetUsagePage(element);
-    e.code = IOHIDElementGetUsage(element);
-    e.device_hash = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(context));
-    write(fd[1], &e, sizeof(struct DKEvent));
+void input_queue_callback(void* context, IOReturn result, void* sender) {
+    if (result != kIOReturnSuccess || !sender) return;
+
+    auto queue = static_cast<IOHIDQueueRef>(sender);
+    const auto device_hash = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(context));
+    std::vector<kanata::macos::timestamped_input_event> events;
+
+    while (auto value = IOHIDQueueCopyNextValue(queue)) {
+        IOHIDElementRef element = IOHIDValueGetElement(value);
+        events.push_back({
+            static_cast<uint64_t>(IOHIDValueGetIntegerValue(value)),
+            IOHIDElementGetUsagePage(element),
+            IOHIDElementGetUsage(element),
+            device_hash,
+            IOHIDValueGetTimeStamp(value),
+        });
+        CFRelease(value);
+    }
+
+    kanata::macos::reorder_same_report_events(events);
+    for (const auto& input : events) {
+        struct DKEvent event {
+            input.value,
+            input.page,
+            input.code,
+            input.device_hash,
+        };
+        write(fd[1], &event, sizeof(struct DKEvent));
+    }
 }
 
 void device_connected_callback(void* context, io_iterator_t iter) {
@@ -240,6 +261,13 @@ void device_connected_callback(void* context, io_iterator_t iter) {
 }
 
 void close_registered_devices() {
+    for (auto& [hash, queue] : input_queues) {
+        IOHIDQueueStop(queue);
+        IOHIDQueueUnscheduleFromRunLoop(queue, listener_loop, kCFRunLoopDefaultMode);
+        CFRelease(queue);
+    }
+    input_queues.clear();
+
     for(auto& [hash, device_ref] : opened_device_refs) {
         kern_return_t kr = IOHIDDeviceClose(device_ref, kIOHIDOptionsTypeSeizeDevice);
         if(kr != KERN_SUCCESS) { print_iokit_error("IOHIDDeviceClose", kr); }
@@ -296,9 +324,44 @@ bool capture_device(IOHIDDeviceRef device_ref, uint64_t device_hash) {
         CFRelease(device_ref);
         return false;
     }
+    auto queue = IOHIDQueueCreate(kCFAllocatorDefault, device_ref, 1024, kIOHIDOptionsTypeNone);
+    if (!queue) {
+        print_iokit_error("IOHIDQueueCreate", kIOReturnNoMemory,
+                         CFStringToStdString(get_device_name(device_ref)));
+        IOHIDDeviceClose(device_ref, kIOHIDOptionsTypeSeizeDevice);
+        CFRelease(device_ref);
+        return false;
+    }
+
+    CFArrayRef elements = IOHIDDeviceCopyMatchingElements(
+        device_ref, nullptr, kIOHIDOptionsTypeNone);
+    CFIndex queued_elements = 0;
+    if (elements) {
+        for (CFIndex i = 0; i < CFArrayGetCount(elements); ++i) {
+            auto element = static_cast<IOHIDElementRef>(
+                const_cast<void*>(CFArrayGetValueAtIndex(elements, i)));
+            auto type = IOHIDElementGetType(element);
+            if (type >= kIOHIDElementTypeInput_Misc &&
+                type <= kIOHIDElementTypeInput_ScanCodes) {
+                IOHIDQueueAddElement(queue, element);
+                ++queued_elements;
+            }
+        }
+        CFRelease(elements);
+    }
+
+    if (queued_elements == 0) {
+        CFRelease(queue);
+        IOHIDDeviceClose(device_ref, kIOHIDOptionsTypeSeizeDevice);
+        CFRelease(device_ref);
+        return false;
+    }
+
     void* ctx = reinterpret_cast<void*>(static_cast<uintptr_t>(device_hash));
-    IOHIDDeviceRegisterInputValueCallback(device_ref, input_callback, ctx);
-    IOHIDDeviceScheduleWithRunLoop(device_ref, listener_loop, kCFRunLoopDefaultMode);
+    IOHIDQueueRegisterValueAvailableCallback(queue, input_queue_callback, ctx);
+    IOHIDQueueScheduleWithRunLoop(queue, listener_loop, kCFRunLoopDefaultMode);
+    IOHIDQueueStart(queue);
+    input_queues[device_hash] = queue;
     opened_device_refs[device_hash] = device_ref;
     return true;
 }

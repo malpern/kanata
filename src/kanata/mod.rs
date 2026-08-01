@@ -9,6 +9,7 @@ use parking_lot::Mutex;
 use std::sync::mpsc::{Receiver, SyncSender as Sender, TryRecvError};
 
 /// Reorders events so modifiers are processed first on press, last on release.
+#[cfg(any(not(target_os = "macos"), test))]
 fn collect_and_sort_events(
     first_event: KeyEvent,
     rx: &Receiver<KeyEvent>,
@@ -54,6 +55,27 @@ fn collect_and_sort_events(
         });
         log::debug!("reordered: {:?}", events);
     }
+}
+
+/// Collect events using the ordering guarantee provided by each input backend.
+///
+/// The macOS backend drains an IOHIDQueue and orders only events that share a
+/// physical report timestamp. Draining this channel again would erase that
+/// boundary and could reorder two distinct reports. Other backends retain the
+/// existing ready-channel batching behavior.
+fn collect_platform_events(
+    first_event: KeyEvent,
+    rx: &Receiver<KeyEvent>,
+    events: &mut Vec<KeyEvent>,
+) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = rx;
+        events.clear();
+        events.push(first_event);
+    }
+    #[cfg(not(target_os = "macos"))]
+    collect_and_sort_events(first_event, rx, events);
 }
 
 #[cfg(any(
@@ -2499,7 +2521,7 @@ impl Kanata {
                     log::trace!("blocking on channel");
                     match rx.recv() {
                         Ok(kev) => {
-                            collect_and_sort_events(kev, &rx, &mut events);
+                            collect_platform_events(kev, &rx, &mut events);
 
                             let mut k = kanata.lock();
                             let now = web_time::Instant::now()
@@ -2636,7 +2658,7 @@ impl Kanata {
                 } else {
                     match rx.try_recv() {
                         Ok(kev) => {
-                            collect_and_sort_events(kev, &rx, &mut events);
+                            collect_platform_events(kev, &rx, &mut events);
 
                             let mut k = kanata.lock();
                             // Check for live reload BEFORE processing the key event
@@ -3201,6 +3223,22 @@ mod collect_and_sort_events_tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].code, OsCode::KEY_A);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_preserves_backend_report_boundaries() {
+        let (tx, rx) = sync_channel::<KeyEvent>(10);
+        let first = make_event(OsCode::KEY_A, KeyValue::Press);
+        tx.send(make_event(OsCode::KEY_LEFTSHIFT, KeyValue::Press))
+            .unwrap();
+
+        let mut result = Vec::new();
+        collect_platform_events(first, &rx, &mut result);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].code, OsCode::KEY_A);
+        assert_eq!(rx.try_recv().unwrap().code, OsCode::KEY_LEFTSHIFT);
     }
 
     #[test]
