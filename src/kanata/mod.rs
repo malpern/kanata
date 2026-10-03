@@ -427,6 +427,13 @@ use once_cell::sync::Lazy;
 pub(crate) static MAPPED_KEYS: Lazy<Mutex<cfg::MappedKeys>> =
     Lazy::new(|| Mutex::new(cfg::MappedKeys::default()));
 
+/// Session hosts must preserve the normal OS-input boundary: an unmapped key
+/// passes through instead of entering the layout as a no-op and being swallowed.
+/// This reads the canonical map, which changes atomically on live reload.
+pub fn is_mapped_input(code: OsCode) -> bool {
+    MAPPED_KEYS.lock().contains(&code)
+}
+
 const LINUX_PERMISSIONS_ERROR: &str = "Failed to open the output uinput device. Make sure you added the user executing kanata to the 'uinput' group and that the 'uinput' group is configured correctly.\nSee for more detail: https://github.com/jtroo/kanata/blob/main/docs/setup-linux.md";
 
 impl Kanata {
