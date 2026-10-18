@@ -284,6 +284,8 @@ impl KanataLayout {
 }
 
 pub struct Cfg {
+    /// Physical inputs explicitly declared by defsrc, before unmapped-key expansion.
+    pub source_keys: MappedKeys,
     /// The list of keys that kanata should be processing. Keys that are missing from `mapped_keys`
     /// that are received from the OS input mechanism will be forwarded to OS output mechanism
     /// without going through kanata's processing.
@@ -389,6 +391,7 @@ fn populate_cfg_with_icfg(icfg: IntermediateCfg, s: ParserState) -> Cfg {
     Cfg {
         options: icfg.options,
         mapped_keys: icfg.mapped_keys,
+        source_keys: icfg.source_keys,
         layer_info: icfg.layer_info,
         key_outputs,
         layout,
@@ -403,6 +406,7 @@ fn populate_cfg_with_icfg(icfg: IntermediateCfg, s: ParserState) -> Cfg {
 
 #[derive(Debug)]
 pub struct IntermediateCfg {
+    pub source_keys: MappedKeys,
     pub options: CfgOptions,
     pub mapped_keys: MappedKeys,
     pub layer_info: Vec<LayerInfo>,
@@ -639,6 +643,7 @@ pub fn parse_cfg_raw_string(
         )
     }
     let (mut mapped_keys, mapping_order, _mouse_in_defsrc) = parse_defsrc(src_expr, &cfg)?;
+    let source_keys = mapping_order.iter().map(|key| OsCode::try_from(*key).expect("parsed defsrc key")).collect();
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "unknown"))]
     if cfg.linux_opts.linux_device_detect_mode.is_none() {
         cfg.linux_opts.linux_device_detect_mode = Some(match _mouse_in_defsrc {
@@ -1015,6 +1020,7 @@ pub fn parse_cfg_raw_string(
 
     let klayers = unsafe { KanataLayers::new(layers, s.a.clone()) };
     Ok(IntermediateCfg {
+        source_keys,
         options: cfg,
         mapped_keys,
         layer_info,
