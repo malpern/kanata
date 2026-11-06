@@ -88,7 +88,7 @@ pub struct CfgWinterceptOptions {
 #[derive(Debug, Clone, Default)]
 pub struct CfgWindowsOptions {
     pub windows_altgr: AltGrBehaviour,
-    pub sync_keystates: bool,
+    pub windows_sync_keystates: WinSyncKeystateBehaviour,
 }
 
 #[cfg(all(any(target_os = "windows", target_os = "unknown"), feature = "gui"))]
@@ -495,9 +495,26 @@ pub fn parse_defcfg(expr: &[SExpr]) -> Result<CfgOptions> {
                         }
                     }
                     "windows-sync-keystates" => {
+                        let sync_mode = sexpr_to_str_or_err(val, label)?;
+                        match sync_mode {
+                            "none" | "clear-kanata-states" | "clear-kanata-and-os-states" => {}
+                            _ => bail_expr!(
+                                val,
+                                "Invalid value for {label}.\nExpected one of: none | clear-kanata-states | clear-kanata-and-os-states"
+                            ),
+                        };
                         #[cfg(any(target_os = "windows", target_os = "unknown"))]
                         {
-                            cfg.windows_opts.sync_keystates = parse_defcfg_val_bool(val, label)?;
+                            cfg.windows_opts.windows_sync_keystates = match sync_mode {
+                                "none" => WinSyncKeystateBehaviour::WinSyncDoNothing,
+                                "clear-kanata-states" => {
+                                    WinSyncKeystateBehaviour::WinSyncClearKanataStates
+                                }
+                                "clear-kanata-and-os-states" => {
+                                    WinSyncKeystateBehaviour::WinSyncClearKanataAndOsStates
+                                }
+                                _ => unreachable!("validated earlier"),
+                            };
                         }
                     }
                     "windows-interception-mouse-hwid" => {
@@ -1003,13 +1020,7 @@ fn parse_cfg_val_u16(expr: &SExpr, label: &str, exclude_zero: bool) -> Result<u1
     match &expr {
         SExpr::Atom(v) => Ok(str::parse::<u16>(v.t.trim_atom_quotes())
             .ok()
-            .and_then(|u| {
-                if exclude_zero && u == 0 {
-                    None
-                } else {
-                    Some(u)
-                }
-            })
+            .filter(|&u| !(exclude_zero && u == 0))
             .ok_or_else(|| anyhow_expr!(expr, "{label} must be {start}-65535"))?),
         SExpr::List(_) => {
             bail_expr!(
@@ -1205,6 +1216,15 @@ pub enum AltGrBehaviour {
     DoNothing,
     CancelLctlPress,
     AddLctlRelease,
+}
+
+#[cfg(any(target_os = "windows", target_os = "unknown"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WinSyncKeystateBehaviour {
+    WinSyncDoNothing,
+    #[default]
+    WinSyncClearKanataStates,
+    WinSyncClearKanataAndOsStates,
 }
 
 #[cfg(any(target_os = "windows", target_os = "unknown"))]

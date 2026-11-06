@@ -799,13 +799,12 @@ impl<'a, T: std::fmt::Debug> WaitingState<'a, T> {
         let res = match active {
             Ok(active) => {
                 // Chording mode still active, only trigger action if it's unambiguous
-                if let Some(action) = config.get_chord_if_unambiguous(active) {
+                {
+                    let action = config.get_chord_if_unambiguous(active)?;
                     if let Some(coord) = released_coord {
                         self.coord = coord;
                     }
                     (WaitingAction::Tap, action)
-                } else {
-                    return None; // nothing to do yet, we'll check back later
                 }
             }
             Err(active) => {
@@ -2085,7 +2084,14 @@ impl<'a, const C: usize, const R: usize, T: 'a + Copy + std::fmt::Debug> Layout<
                               // Disregard any presses that are actually still in the queue and
                               // unresolved.
                               && !self.queue.iter().any(|q| {
-                                  q.since == prior.ticks_since_occurrence
+                                  // Events drained out of the chordsv2 queue are ticked
+                                  // by both tick_chv2 and the layout queue tick on the drain cycle,
+                                  // so a queued event's `since` can run ahead of its history entry's
+                                  // age.
+                                  //
+                                  // It is possibly troublesome to fix that issue so give some leeway
+                                  // in the comparison.
+                                  q.since.abs_diff(prior.ticks_since_occurrence) <= 2
                                   && match q.event {
                                       Event::Press(0, j) => j == prior.event.1,
                                       _ => false

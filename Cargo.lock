@@ -717,7 +717,7 @@ dependencies = [
 
 [[package]]
 name = "kanata"
-version = "1.12.0"
+version = "1.12.1-prerelease-1"
 dependencies = [
  "anyhow",
  "arboard",
@@ -776,7 +776,7 @@ dependencies = [
 
 [[package]]
 name = "kanata-keyberon"
-version = "0.1120.2"
+version = "0.1121.0"
 dependencies = [
  "arraydeque",
  "heapless",
@@ -796,7 +796,7 @@ dependencies = [
 
 [[package]]
 name = "kanata-parser"
-version = "0.1120.2"
+version = "0.1121.0"
 dependencies = [
  "anyhow",
  "bitflags 2.9.1",
@@ -830,7 +830,7 @@ dependencies = [
 
 [[package]]
 name = "kanata-tcp-protocol"
-version = "0.1120.2"
+version = "0.1121.0"
 dependencies = [
  "serde",
  "serde_derive",
@@ -863,7 +863,8 @@ dependencies = [
 
 [[package]]
 name = "karabiner-driverkit"
-version = "0.3.1"
+version = "0.4.0"
+source = "git+https://github.com/malpern/driverkit.git?rev=9fcaf6fe5af0059466afcd4d6c9713fd10c0216c#9fcaf6fe5af0059466afcd4d6c9713fd10c0216c"
 dependencies = [
  "cc",
  "os_info",

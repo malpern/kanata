@@ -207,14 +207,6 @@ extern "C" fn karabiner_sigabrt_handler(_sig: libc::c_int) {
 unsafe extern "C" {
     fn IOHIDCheckAccess(request: u32) -> u32;
     fn IOHIDRequestAccess(request: u32) -> bool;
-    fn IOHIDGetModifierLockState(handle: u32, selector: i32, state: *mut bool) -> i32;
-    fn IOHIDSetModifierLockState(handle: u32, selector: i32, state: bool) -> i32;
-    fn IOServiceMatching(name: *const libc::c_char) -> *mut libc::c_void;
-    fn IOServiceGetMatchingService(main_port: u32, matching: *mut libc::c_void) -> u32;
-    fn IOServiceOpen(service: u32, owning_task: u32, type_: u32, connect: *mut u32) -> i32;
-    fn IOObjectRelease(object: u32) -> i32;
-
-    static mach_task_self_: u32;
 }
 
 // ApplicationServices bindings for the Accessibility TCC gate.
@@ -244,8 +236,6 @@ const K_IOHID_REQUEST_TYPE_LISTEN_EVENT: u32 = 1;
 const K_IOHID_ACCESS_TYPE_GRANTED: u32 = 0;
 const K_IOHID_ACCESS_TYPE_DENIED: u32 = 1;
 const K_IOHID_ACCESS_TYPE_UNKNOWN: u32 = 2;
-const K_IOHID_PARAM_CONNECT_TYPE: u32 = 1;
-const K_IOHID_CAPS_LOCK_STATE: i32 = 1;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum AccessibilityPermissionStatus {
@@ -648,12 +638,8 @@ impl KbdIn {
         // Based on the definition of include and exclude names, they should never be used together.
         // Kanata config parser should probably enforce this.
         let has_device_filter = include_names.is_some() || exclude_names.is_some();
-        let (device_names, deferred_names) = if let Some(ref included_names) = include_names {
-            if continue_if_no_devices {
-                register_devices_with_deferred(included_names)
-            } else {
-                (validate_and_register_devices(included_names), Vec::new())
-            }
+        let device_names = if let Some(ref included_names) = include_names {
+            validate_and_register_devices(included_names)
         } else if let Some(ref excluded_names) = exclude_names {
             // Exclude list: enumerate devices, filter out excluded and
             // known-problematic virtual devices (Sidecar, etc.), then
@@ -673,12 +659,9 @@ impl KbdIn {
                 })
                 .collect::<Vec<String>>();
 
-            (
-                validate_and_register_devices(&devices_to_include),
-                Vec::new(),
-            )
+            validate_and_register_devices(&devices_to_include)
         } else {
-            (Vec::new(), Vec::new())
+            vec![]
         };
 
         if !device_names.is_empty() || (!has_device_filter && register_device("")) {
@@ -690,6 +673,14 @@ impl KbdIn {
                     device_names,
                 })
             } else {
+                // We have already pre-flighted Input Monitoring and
+                // Accessibility, so by this point the most common
+                // remaining cause of a `grab failed` is a stale TCC
+                // entry that still points at an older copy of the
+                // kanata binary — macOS pins the granted path, and
+                // after a move/rename/upgrade the new binary is not
+                // actually trusted even though the UI shows an entry.
+                // See issue #1211.
                 Err(anyhow!(
                     "grab failed. kanata could not open the keyboard device \
                      despite Input Monitoring and Accessibility being \
@@ -704,23 +695,21 @@ impl KbdIn {
                 ))
             }
         } else if continue_if_no_devices {
-            // No devices are currently connected. For hash-based device IDs,
-            // register_device_hash already inserted them unconditionally — try
-            // grab() which starts the listener thread and device_connected_callback
-            // subscriptions. For name-based IDs we must poll.
+            let names = include_names.unwrap_or_default();
             if grab() {
                 log::info!(
                     "No devices currently connected but listener started. \
                      Waiting for device connection via callback..."
                 );
+                let device_hash_to_id = build_device_hash_to_id_map(input_devices);
                 Ok(Self {
                     grabbed: false,
-                    device_hash_to_id: build_device_hash_to_id_map(input_devices),
+                    device_hash_to_id,
                     device_names: Vec::new(),
                 })
             } else {
                 log::info!("No devices registered yet. Polling for device connection...");
-                Self::poll_for_devices(&deferred_names, input_devices)
+                Self::poll_for_devices(&names, input_devices)
             }
         } else {
             Err(anyhow!(
@@ -781,8 +770,7 @@ impl KbdIn {
 
     /// Names of the devices currently seized by this grab. Empty when nothing
     /// is grabbed. The list is retained across `release_input()` /
-    /// `regrab_input()` cycles because the recovery path re-seizes the same
-    /// physical devices.
+    /// `regrab_input()` cycles because recovery re-seizes the same devices.
     pub fn grabbed_device_names(&self) -> &[String] {
         &self.device_names
     }
@@ -803,9 +791,12 @@ impl KbdIn {
                 );
             }
             let mut registered_names = Vec::new();
-            for name in names {
-                let name = sanitize_device_name(name);
-                if !name.is_empty() && device_matches(&name) && register_device(&name) {
+            for raw_name in names {
+                let name = sanitize_device_name(raw_name);
+                if name.is_empty() {
+                    continue;
+                }
+                if device_matches(&name) && register_device(&name) {
                     log::info!("Device '{name}' appeared and was registered");
                     registered_names.push(name);
                 }
@@ -942,30 +933,6 @@ fn validate_and_register_devices(include_names: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// Registers devices for a deferred grab when `continue_if_no_devices` is true.
-/// Returns (registered, deferred): devices that were registered now (connected)
-/// and device names that need polling (not currently connected).
-fn register_devices_with_deferred(include_names: &[String]) -> (Vec<String>, Vec<String>) {
-    let mut registered = Vec::new();
-    let mut deferred = Vec::new();
-
-    for dev in include_names {
-        let dev = sanitize_device_name(dev);
-        if dev.is_empty() || dev.to_lowercase().contains("karabiner") {
-            continue;
-        }
-        if register_device(&dev) {
-            log::info!("Device '{dev}' registered (currently connected)");
-            registered.push(dev);
-        } else {
-            log::info!("Device '{dev}' not currently connected, will wait for it");
-            deferred.push(dev);
-        }
-    }
-
-    (registered, deferred)
-}
-
 impl fmt::Display for InputEvent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use kanata_keyberon::key_code::KeyCode;
@@ -1036,97 +1003,8 @@ impl TryFrom<KeyEvent> for InputEvent {
 }
 
 #[cfg(all(not(feature = "simulated_output"), not(feature = "passthru_ahk")))]
-fn hid_system_param_connect() -> Option<u32> {
-    static CONNECT: OnceLock<Option<u32>> = OnceLock::new();
-
-    *CONNECT.get_or_init(|| {
-        let service_name = c"IOHIDSystem";
-        let matching = unsafe {
-            // SAFETY: IOServiceMatching expects a null-terminated service name
-            // and returns a retained matching dictionary consumed by
-            // IOServiceGetMatchingService below.
-            IOServiceMatching(service_name.as_ptr())
-        };
-        if matching.is_null() {
-            log::warn!("failed to create IOHIDSystem matching dictionary");
-            return None;
-        }
-
-        let service = unsafe {
-            // SAFETY: kIOMainPortDefault is 0. IOServiceGetMatchingService
-            // consumes the retained matching dictionary returned above.
-            IOServiceGetMatchingService(0, matching)
-        };
-        if service == 0 {
-            log::warn!("failed to find IOHIDSystem service for Caps Lock LED sync");
-            return None;
-        }
-
-        let mut connect = 0u32;
-        let rc = unsafe {
-            // SAFETY: service is a live IOService handle. mach_task_self_ is
-            // the process task port exported by libSystem.
-            IOServiceOpen(
-                service,
-                mach_task_self_,
-                K_IOHID_PARAM_CONNECT_TYPE,
-                &mut connect,
-            )
-        };
-        unsafe {
-            // SAFETY: service was returned by IOServiceGetMatchingService and
-            // must be released after IOServiceOpen.
-            IOObjectRelease(service);
-        }
-
-        if rc == 0 && connect != 0 {
-            Some(connect)
-        } else {
-            log::warn!("failed to open IOHIDSystem parameter connection: rc={rc}");
-            None
-        }
-    })
-}
-
-#[cfg(all(not(feature = "simulated_output"), not(feature = "passthru_ahk")))]
-fn get_hid_caps_lock_state() -> Option<bool> {
-    let connect = hid_system_param_connect()?;
-    let mut state = false;
-    let rc = unsafe {
-        // SAFETY: connect is an IOHIDSystem parameter connection cached above;
-        // state points to valid writable memory for the duration of the call.
-        IOHIDGetModifierLockState(connect, K_IOHID_CAPS_LOCK_STATE, &mut state)
-    };
-    if rc == 0 {
-        Some(state)
-    } else {
-        log::warn!("failed to read IOHID Caps Lock state: rc={rc}");
-        None
-    }
-}
-
-#[cfg(all(not(feature = "simulated_output"), not(feature = "passthru_ahk")))]
-fn set_hid_caps_lock_state(state: bool) -> io::Result<()> {
-    let connect = hid_system_param_connect()
-        .ok_or_else(|| io::Error::other("IOHIDSystem parameter connection unavailable"))?;
-    let rc = unsafe {
-        // SAFETY: connect is an IOHIDSystem parameter connection cached above.
-        // kIOHIDCapsLockState is the documented selector for this API.
-        IOHIDSetModifierLockState(connect, K_IOHID_CAPS_LOCK_STATE, state)
-    };
-    if rc == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::other(format!(
-            "failed to set IOHID Caps Lock state: rc={rc}"
-        )))
-    }
-}
-
-#[cfg(all(not(feature = "simulated_output"), not(feature = "passthru_ahk")))]
 pub struct KbdOut {
     output_pressed_since: HashMap<OsCode, Instant>,
-    caps_lock_state: Option<bool>,
     output_suspended: std::sync::atomic::AtomicBool,
 }
 
@@ -1159,35 +1037,11 @@ impl KbdOut {
     pub fn new() -> Result<Self, io::Error> {
         Ok(KbdOut {
             output_pressed_since: HashMap::default(),
-            caps_lock_state: get_hid_caps_lock_state(),
             output_suspended: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
-    fn write_caps_lock(&mut self, value: u64) -> Result<(), io::Error> {
-        if value != KeyValue::Press as u64 {
-            return Ok(());
-        }
-
-        let next_state = !self.caps_lock_state.unwrap_or(false);
-
-        // Use IOHIDSetModifierLockState instead of the VirtualHID path for caps
-        // lock. macOS sends LED output reports to the originating HID device;
-        // the DriverKit virtual keyboard has no physical LED, so the physical
-        // keyboard LED would never update. IOHIDSetModifierLockState sets both
-        // the system modifier state (so apps see correct case) and drives the
-        // LED on the physical keyboard.
-        set_hid_caps_lock_state(next_state)?;
-        self.caps_lock_state = Some(next_state);
-        Ok(())
-    }
-
     pub fn write(&mut self, event: InputEvent) -> Result<(), io::Error> {
-        if event.page == 0x07 && event.code == 0x39 {
-            log::debug!("Caps Lock output: using IOHIDSetModifierLockState path for {event:?}");
-            return self.write_caps_lock(event.value);
-        }
-
         let mut devent = event.into();
         log::debug!("Attempting to write {event:?} {devent:?}");
         let rc = send_key(&mut devent);

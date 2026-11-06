@@ -9,6 +9,7 @@ use parking_lot::Mutex;
 use std::sync::mpsc::{Receiver, SyncSender as Sender, TryRecvError};
 
 /// Reorders events so modifiers are processed first on press, last on release.
+#[cfg(any(not(target_os = "macos"), test))]
 fn collect_and_sort_events(
     first_event: KeyEvent,
     rx: &Receiver<KeyEvent>,
@@ -54,6 +55,27 @@ fn collect_and_sort_events(
         });
         log::debug!("reordered: {:?}", events);
     }
+}
+
+/// Collect events using the ordering guarantee provided by each input backend.
+///
+/// The macOS backend drains an IOHIDQueue and orders only events that share a
+/// physical report timestamp. Draining this channel again would erase that
+/// boundary and could reorder two distinct reports. Other backends retain the
+/// existing ready-channel batching behavior.
+fn collect_platform_events(
+    first_event: KeyEvent,
+    rx: &Receiver<KeyEvent>,
+    events: &mut Vec<KeyEvent>,
+) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = rx;
+        events.clear();
+        events.push(first_event);
+    }
+    #[cfg(not(target_os = "macos"))]
+    collect_and_sort_events(first_event, rx, events);
 }
 
 #[cfg(any(
@@ -240,7 +262,7 @@ pub struct Kanata {
     /// Tracks whether Kanata should try to synchronize keystates with the Windows OS.
     /// Has no effect on Interception. Fixes some use cases related to admin window permissions and
     /// potentially locking via Win+L.
-    pub windows_sync_keystates: bool,
+    pub windows_sync_keystates: WinSyncKeystateBehaviour,
     #[cfg(all(feature = "interception_driver", target_os = "windows"))]
     /// Used to know which input device to treat as a mouse for intercepting and processing inputs
     /// by kanata.
@@ -405,6 +427,13 @@ use once_cell::sync::Lazy;
 pub(crate) static MAPPED_KEYS: Lazy<Mutex<cfg::MappedKeys>> =
     Lazy::new(|| Mutex::new(cfg::MappedKeys::default()));
 
+/// Session hosts must preserve the normal OS-input boundary: an unmapped key
+/// passes through instead of entering the layout as a no-op and being swallowed.
+/// This reads the canonical map, which changes atomically on live reload.
+pub fn is_mapped_input(code: OsCode) -> bool {
+    MAPPED_KEYS.lock().contains(&code)
+}
+
 const LINUX_PERMISSIONS_ERROR: &str = "Failed to open the output uinput device. Make sure you added the user executing kanata to the 'uinput' group and that the 'uinput' group is configured correctly.\nSee for more detail: https://github.com/jtroo/kanata/blob/main/docs/setup-linux.md";
 
 impl Kanata {
@@ -496,18 +525,18 @@ impl Kanata {
             include_names: cfg.options.macos_opts.macos_dev_names_include,
             #[cfg(target_os = "macos")]
             exclude_names: cfg.options.macos_opts.macos_dev_names_exclude,
-            #[cfg(target_os = "macos")]
-            continue_if_no_devices: cfg.options.macos_opts.macos_continue_if_no_devs_found,
             #[cfg(any(target_os = "linux", target_os = "android"))]
             kbd_in_paths: cfg.options.linux_opts.linux_dev,
             #[cfg(any(target_os = "linux", target_os = "android"))]
             continue_if_no_devices: cfg.options.linux_opts.linux_continue_if_no_devs_found,
+            #[cfg(target_os = "macos")]
+            continue_if_no_devices: cfg.options.macos_opts.macos_continue_if_no_devs_found,
             #[cfg(any(target_os = "linux", target_os = "android"))]
             include_names: cfg.options.linux_opts.linux_dev_names_include,
             #[cfg(any(target_os = "linux", target_os = "android"))]
             exclude_names: cfg.options.linux_opts.linux_dev_names_exclude,
             #[cfg(target_os = "windows")]
-            windows_sync_keystates: cfg.options.windows_opts.sync_keystates,
+            windows_sync_keystates: cfg.options.windows_opts.windows_sync_keystates,
             #[cfg(all(feature = "interception_driver", target_os = "windows"))]
             intercept_mouse_hwids: cfg.options.wintercept_opts.windows_interception_mouse_hwids,
             #[cfg(all(feature = "interception_driver", target_os = "windows"))]
@@ -671,18 +700,18 @@ impl Kanata {
             include_names: cfg.options.macos_opts.macos_dev_names_include,
             #[cfg(target_os = "macos")]
             exclude_names: cfg.options.macos_opts.macos_dev_names_exclude,
-            #[cfg(target_os = "macos")]
-            continue_if_no_devices: cfg.options.macos_opts.macos_continue_if_no_devs_found,
             #[cfg(any(target_os = "linux", target_os = "android"))]
             kbd_in_paths: cfg.options.linux_opts.linux_dev,
             #[cfg(any(target_os = "linux", target_os = "android"))]
             continue_if_no_devices: cfg.options.linux_opts.linux_continue_if_no_devs_found,
+            #[cfg(target_os = "macos")]
+            continue_if_no_devices: cfg.options.macos_opts.macos_continue_if_no_devs_found,
             #[cfg(any(target_os = "linux", target_os = "android"))]
             include_names: cfg.options.linux_opts.linux_dev_names_include,
             #[cfg(any(target_os = "linux", target_os = "android"))]
             exclude_names: cfg.options.linux_opts.linux_dev_names_exclude,
             #[cfg(target_os = "windows")]
-            windows_sync_keystates: cfg.options.windows_opts.sync_keystates,
+            windows_sync_keystates: cfg.options.windows_opts.windows_sync_keystates,
             #[cfg(all(feature = "interception_driver", target_os = "windows"))]
             intercept_mouse_hwids: cfg.options.wintercept_opts.windows_interception_mouse_hwids,
             #[cfg(all(feature = "interception_driver", target_os = "windows"))]
@@ -831,7 +860,7 @@ impl Kanata {
         self.virtual_keys = cfg.fake_keys;
         #[cfg(target_os = "windows")]
         {
-            self.windows_sync_keystates = cfg.options.windows_opts.sync_keystates;
+            self.windows_sync_keystates = cfg.options.windows_opts.windows_sync_keystates;
         }
         #[cfg(all(target_os = "windows", feature = "gui"))]
         {
@@ -1729,11 +1758,11 @@ impl Kanata {
                                 interval: *interval,
                                 scroll_accel_state: inertial_scroll_params.as_ref().map(|isp|
                                     ScrollAccelState {
-                                    deceleration_multiplier: isp.deceleration_multiplier.0,
-                                    acceleration_multiplier: isp.acceleration_multiplier.0,
-                                    max_velocity: isp.maximum_velocity.0,
-                                    current_velocity: isp.initial_velocity.0,
-                                    scroll_released: false,
+                                        deceleration_multiplier: isp.deceleration_multiplier.0,
+                                        acceleration_multiplier: isp.acceleration_multiplier.0,
+                                        max_velocity: isp.maximum_velocity.0,
+                                        current_velocity: isp.initial_velocity.0,
+                                        scroll_released: false,
                                     }
                                 ),
                             })
@@ -1744,7 +1773,15 @@ impl Kanata {
                                 distance: *distance,
                                 ticks_until_scroll: 0,
                                 interval: *interval,
-                                scroll_accel_state: None,
+                                scroll_accel_state: inertial_scroll_params.as_ref().map(|isp|
+                                    ScrollAccelState {
+                                        deceleration_multiplier: isp.deceleration_multiplier.0,
+                                        acceleration_multiplier: isp.acceleration_multiplier.0,
+                                        max_velocity: isp.maximum_velocity.0,
+                                        current_velocity: isp.initial_velocity.0,
+                                        scroll_released: false,
+                                    }
+                                ),
                             })
                         }
                     },
@@ -2499,7 +2536,7 @@ impl Kanata {
                     log::trace!("blocking on channel");
                     match rx.recv() {
                         Ok(kev) => {
-                            collect_and_sort_events(kev, &rx, &mut events);
+                            collect_platform_events(kev, &rx, &mut events);
 
                             let mut k = kanata.lock();
                             let now = web_time::Instant::now()
@@ -2636,7 +2673,7 @@ impl Kanata {
                 } else {
                     match rx.try_recv() {
                         Ok(kev) => {
-                            collect_and_sort_events(kev, &rx, &mut events);
+                            collect_platform_events(kev, &rx, &mut events);
 
                             let mut k = kanata.lock();
                             // Check for live reload BEFORE processing the key event
@@ -3201,6 +3238,22 @@ mod collect_and_sort_events_tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].code, OsCode::KEY_A);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_preserves_backend_report_boundaries() {
+        let (tx, rx) = sync_channel::<KeyEvent>(10);
+        let first = make_event(OsCode::KEY_A, KeyValue::Press);
+        tx.send(make_event(OsCode::KEY_LEFTSHIFT, KeyValue::Press))
+            .unwrap();
+
+        let mut result = Vec::new();
+        collect_platform_events(first, &rx, &mut result);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].code, OsCode::KEY_A);
+        assert_eq!(rx.try_recv().unwrap().code, OsCode::KEY_LEFTSHIFT);
     }
 
     #[test]

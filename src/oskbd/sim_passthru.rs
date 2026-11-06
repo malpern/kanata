@@ -90,7 +90,13 @@ impl KbdOut {
         let event = {
             #[cfg(target_os = "macos")]
             {
-                key_ev.try_into().unwrap()
+                // Preserve repeat in the host passthrough queue without changing
+                // the physical DriverKit down/up representation.
+                let mut event: InputEvent = key_ev.try_into().unwrap();
+                if value == KeyValue::Repeat {
+                    event.value = 2;
+                }
+                event
             }
             #[cfg(not(target_os = "macos"))]
             {

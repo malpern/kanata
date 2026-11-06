@@ -105,6 +105,7 @@ impl Kanata {
         } else {
             info!("no devices grabbed yet, waiting for device connection...");
         }
+
         // Emit authoritative grab status once the startup grab attempt has
         // resolved. `is_grabbed()` is ground truth from the OS seize layer.
         // When false here we are in the "continue_if_no_devices" deferred path:
@@ -320,8 +321,17 @@ impl Kanata {
 
             // Re-seize input devices using regrab_input() which creates a fresh
             // pipe and listener thread without re-initializing the sink client.
-            let grabbed = kb.regrab_input();
-            if !grabbed && !continue_if_no_devices {
+            if kb.regrab_input() {
+                #[cfg(feature = "tcp_server")]
+                kanata
+                    .lock()
+                    .emit_input_grab(true, kb.grabbed_device_names().to_vec(), None);
+                info!("keyboard grabbed, entering event processing loop");
+            } else if continue_if_no_devices {
+                #[cfg(feature = "tcp_server")]
+                kanata.lock().emit_input_grab(false, Vec::new(), None);
+                info!("no devices grabbed after recovery, waiting for device connection...");
+            } else {
                 #[cfg(feature = "tcp_server")]
                 kanata.lock().emit_input_grab(
                     false,
@@ -329,26 +339,6 @@ impl Kanata {
                     Some("failed to re-grab keyboard devices after DriverKit recovery".to_string()),
                 );
                 bail!("failed to re-grab keyboard devices after DriverKit recovery");
-            }
-
-            // Report the authoritative post-recovery grab state. With
-            // continue-if-no-devices enabled, recovery may legitimately leave
-            // Kanata waiting without a seized device.
-            #[cfg(feature = "tcp_server")]
-            kanata.lock().emit_input_grab(
-                grabbed,
-                if grabbed {
-                    kb.grabbed_device_names().to_vec()
-                } else {
-                    Vec::new()
-                },
-                None,
-            );
-
-            if grabbed {
-                info!("keyboard grabbed, entering event processing loop");
-            } else {
-                info!("no devices grabbed after recovery, waiting for device connection...");
             }
             // Back to the event processing loop.
         }

@@ -554,10 +554,14 @@ This might be useful
 if you are only mapping a few keys in defsrc
 instead of most of the keys on your keyboard.
 
-By default, keys excluded from `defsrc` will not work in various scenarios.
+By default, keys excluded from `defsrc`
+and that aren't found in any `deflayermap` input position
+will not work in various scenarios.
 Some examples:
 
-- The early hold for prior `+tap-hold-press+` actions will not
+- The early hold for prior `+tap-hold-press+` actions will not activate early
+- Unprocessed keys will be sent
+  before a tap-hold key finishes evaluating tap vs. hold
 - Prior `+one-shot+` actions will not be released
 - `fork` and `switch` logic will not see the key
 
@@ -795,7 +799,7 @@ The first file specified is `n=1`.
 
 Live reload does not read or apply changes to device-related configurations.
 Examples of device-related configurations:
-`linux-dev`, `macos-dev-names-include`, `macos-dev-ids-include`, `linux-use-trackpoint-property`,
+`linux-dev`, `macos-dev-names-include`, `linux-use-trackpoint-property`,
 `windows-only-windows-interception-keyboard-hwids`.
 
 **Description**
@@ -5058,48 +5062,6 @@ Use `kanata -l` or `kanata --list` to list the available keyboards.
   )
 )
 ----
-[[macos-only-macos-dev-ids-include]]
-=== macOS only: macos-dev-ids-include
-
-This option defines a list of device vendor/product ID pairs to include,
-specified as hex `"VID:PID"` strings. This is more reliable than
-`macos-dev-names-include` for keyboards whose product name changes across
-connect cycles (common with QMK/Via firmware keyboards).
-
-Use `kanata -l` or `kanata --list` to find the vendor and product IDs
-for your keyboards.
-
-.Example:
-[source]
-----
-(defcfg
-  macos-dev-ids-include (
-    "00DE:5754"
-    "05AC:0342"
-  )
-)
-----
-
-[[macos-only-macos-continue-if-no-devs-found]]
-=== macOS only: macos-continue-if-no-devs-found
-
-By default, kanata will exit with an error if no input devices are found.
-You can change this behaviour by setting `macos-continue-if-no-devs-found`.
-When enabled, kanata will poll for devices every 2 seconds and grab them
-when they appear. This is useful for Bluetooth keyboards that are not
-connected at boot time.
-
-This option works best with `macos-dev-ids-include` or
-`macos-dev-names-include` to specify which device to wait for.
-
-.Example:
-[source]
-----
-(defcfg
-  macos-dev-ids-include ("00DE:5754")
-  macos-continue-if-no-devs-found yes
-)
-----
 
 [[macos-only-macos-continue-if-no-devs-found]]
 === macOS only: macos-continue-if-no-devs-found
@@ -5153,6 +5115,34 @@ and any <<deflayermap,`deflayermap`>> `$input` position.
 ----
 (defcfg
   windows-altgr add-lctl-release
+)
+----
+
+[[windows-only-windows-sync-keystates]]
+=== Windows only: windows-sync-keystates
+
+By default Kanata on Windows without Interception
+has behaviour to check against the Windows operating system
+and try to synchronize known keys where they differ
+between the OS and Kanata.
+This is because of limitations in the Windows keyboard APIs
+where Kanata is not guaranteed to see all events.
+However, likewise due to limitations in the APIs,
+even this sync mechanism is not perfect.
+If the sync behaviour is causing issues, set it to `none`.
+The default is `clear-kanata-states`.
+
+Options:
+
+* `none`
+* `clear-kanata-states`
+* `clear-kanata-and-os-states`
+
+.Example:
+[source]
+----
+(defcfg
+  windows-sync-keystates none
 )
 ----
 
