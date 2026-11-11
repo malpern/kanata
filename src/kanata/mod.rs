@@ -2441,7 +2441,11 @@ impl Kanata {
 
                         for id in &stale_clients {
                             log::warn!("removing disconnected tcp client: {id}");
-                            clients.remove(id);
+                            // A client that timed out may still be connected; close
+                            // it so its reader thread ends too.
+                            if let Some(client) = clients.remove(id) {
+                                client.shutdown();
+                            }
                         }
                     }
                 }
