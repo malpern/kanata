@@ -243,6 +243,10 @@ pub fn read_peer_identity(_stream: &UnixStream) -> std::io::Result<PeerIdentity>
     ))
 }
 
+/// Ids of Unix-socket clients in [`Connections`] start with this.
+#[cfg(all(feature = "tcp_server", unix))]
+const UNIX_CLIENT_PREFIX: &str = "unix-";
+
 /// Stops a Unix-socket server from accepting, removes its socket file and
 /// closes its open connections.
 #[cfg(all(feature = "tcp_server", unix))]
@@ -265,9 +269,14 @@ impl ControlHandle {
             let _ = UnixStream::connect(path);
             let _ = std::fs::remove_file(path);
         }
-        for (_, client) in self.connections.lock().drain() {
-            client.shutdown();
-        }
+        // Only this socket's clients; a TCP listener sharing the set keeps its own.
+        self.connections.lock().retain(|id, client| {
+            let control = id.starts_with(UNIX_CLIENT_PREFIX);
+            if control {
+                client.shutdown();
+            }
+            !control
+        });
     }
 
     pub fn is_closed(&self) -> bool {
@@ -468,7 +477,7 @@ impl TcpServer {
                             let id = next_id.fetch_add(1, Ordering::Relaxed);
                             accept_client(
                                 ClientStream::Unix(stream),
-                                format!("unix-{id}-pid-{}", peer.pid),
+                                format!("{UNIX_CLIENT_PREFIX}{id}-pid-{}", peer.pid),
                                 &kanata,
                                 &connections,
                                 &wakeup_channel,
