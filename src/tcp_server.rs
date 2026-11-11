@@ -53,6 +53,35 @@ impl ClientStream {
         }
     }
 
+    /// A write to a client that has gone away returns `EPIPE` instead of
+    /// raising `SIGPIPE`. An embedding process (KeyPath's worker) does not get
+    /// Rust's own binary-level `SIGPIPE` ignore, so without this one dead
+    /// client kills the whole process mid-write, skipping its cleanup.
+    pub fn set_no_sigpipe(&self) -> std::io::Result<()> {
+        #[cfg(target_os = "macos")]
+        {
+            use std::os::fd::AsRawFd;
+            let fd = match self {
+                ClientStream::Tcp(stream) => stream.as_raw_fd(),
+                ClientStream::Unix(stream) => stream.as_raw_fd(),
+            };
+            let on: libc::c_int = 1;
+            let result = unsafe {
+                libc::setsockopt(
+                    fd,
+                    libc::SOL_SOCKET,
+                    libc::SO_NOSIGPIPE,
+                    (&on as *const libc::c_int).cast(),
+                    std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+                )
+            };
+            if result != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+        Ok(())
+    }
+
     /// Closes both directions, which also ends the client's reader thread.
     pub fn shutdown(&self) {
         let _ = match self {
@@ -527,6 +556,11 @@ fn accept_client(
         stream.shutdown();
         return;
     }
+    if let Err(e) = stream.set_no_sigpipe() {
+        log::warn!("could not disable SIGPIPE for {addr}, dropping it: {e:?}");
+        stream.shutdown();
+        return;
+    }
     if let Err(e) = stream.set_write_timeout(policy.write_timeout) {
         log::warn!("could not set a write timeout for {addr}, dropping it: {e:?}");
         stream.shutdown();
@@ -960,6 +994,25 @@ mod control_tests {
         PeerCheck::new(peer.uid, Some((peer.pid, peer.pid_version)))
             .verify(&a)
             .expect("owner admitted");
+    }
+
+    /// Writing to a peer that has gone away must fail, not raise SIGPIPE
+    /// (which would kill this test process, as it killed the worker).
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_write_to_a_closed_peer_returns_an_error_instead_of_sigpipe() {
+        let (a, b) = UnixStream::pair().expect("socket pair");
+        let mut client = ClientStream::Unix(a);
+        client.set_no_sigpipe().expect("SO_NOSIGPIPE");
+        drop(b);
+        let mut failed = false;
+        for _ in 0..4 {
+            if client.write_all(&[0u8; 65536]).is_err() {
+                failed = true;
+                break;
+            }
+        }
+        assert!(failed, "writes to a closed peer must report an error");
     }
 
     #[test]
