@@ -104,7 +104,7 @@ impl Write for ClientStream {
 pub struct ServerPolicy {
     /// Refuse `ReloadFile`, `ReloadNext`, `ReloadPrev`, `ReloadNum` and `SetMouse`.
     pub restrict_commands: bool,
-    /// Refuse new connections while this many are open.
+    /// Refuse new connections while this many of the same kind (TCP or Unix) are open.
     pub max_connections: Option<usize>,
     /// Applied to every client socket; a notification write that times out drops the client.
     pub write_timeout: Option<Duration>,
@@ -115,7 +115,7 @@ impl ServerPolicy {
     pub fn session() -> Self {
         Self {
             restrict_commands: true,
-            max_connections: Some(8),
+            max_connections: Some(16),
             write_timeout: Some(Duration::from_secs(2)),
         }
     }
@@ -244,8 +244,16 @@ pub fn read_peer_identity(_stream: &UnixStream) -> std::io::Result<PeerIdentity>
 }
 
 /// Ids of Unix-socket clients in [`Connections`] start with this.
-#[cfg(all(feature = "tcp_server", unix))]
+#[cfg(feature = "tcp_server")]
 const UNIX_CLIENT_PREFIX: &str = "unix-";
+
+/// Open clients of one kind. TCP and Unix clients are counted apart, so
+/// processes that can reach loopback TCP cannot use up the owner's socket.
+#[cfg(feature = "tcp_server")]
+fn open_clients<'a>(ids: impl Iterator<Item = &'a String>, unix: bool) -> usize {
+    ids.filter(|id| id.starts_with(UNIX_CLIENT_PREFIX) == unix)
+        .count()
+}
 
 /// Stops a Unix-socket server from accepting, removes its socket file and
 /// closes its open connections.
@@ -511,8 +519,9 @@ fn accept_client(
     wakeup_channel: &Sender<KeyEvent>,
     policy: &ServerPolicy,
 ) {
+    let unix = addr.starts_with(UNIX_CLIENT_PREFIX);
     if let Some(max) = policy.max_connections
-        && connections.lock().len() >= max
+        && open_clients(connections.lock().keys(), unix) >= max
     {
         log::warn!("refused client {addr}: {max} connections already open");
         stream.shutdown();
@@ -951,6 +960,21 @@ mod control_tests {
         PeerCheck::new(peer.uid, Some((peer.pid, peer.pid_version)))
             .verify(&a)
             .expect("owner admitted");
+    }
+
+    #[test]
+    fn tcp_clients_do_not_count_against_the_unix_cap() {
+        let ids: Vec<String> = (0..16)
+            .map(|i| format!("127.0.0.1:{}", 5000 + i))
+            .chain(["unix-0-pid-42".to_string()])
+            .collect();
+        assert_eq!(open_clients(ids.iter(), false), 16);
+        assert_eq!(open_clients(ids.iter(), true), 1);
+        let cap = ServerPolicy::session().max_connections.unwrap();
+        assert!(
+            open_clients(ids.iter(), true) < cap,
+            "TCP clients must not lock out the owner"
+        );
     }
 
     #[test]
