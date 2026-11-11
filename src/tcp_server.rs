@@ -173,7 +173,14 @@ pub struct PeerIdentity {
     pub pid: i32,
     /// Changes when a PID is reused, so a PID plus its version names one process.
     pub pid_version: u32,
+    /// The raw `audit_token_t` (macOS), for checks such as the peer's code
+    /// signature. All zeros where the platform has none.
+    pub audit_token: [u32; 8],
 }
+
+/// A further check on an admitted peer, for example its code signature.
+#[cfg(all(feature = "tcp_server", unix))]
+pub type PeerPredicate = Arc<dyn Fn(&PeerIdentity) -> Result<(), String> + Send + Sync>;
 
 #[cfg(all(feature = "tcp_server", unix))]
 pub type PeerReader = Arc<dyn Fn(&UnixStream) -> std::io::Result<PeerIdentity> + Send + Sync>;
@@ -186,6 +193,8 @@ pub struct PeerCheck {
     /// The one process allowed to connect: its PID and PID version.
     expected_owner: Option<(i32, u32)>,
     reader: PeerReader,
+    /// Runs after the uid and owner checks pass.
+    extra: Option<PeerPredicate>,
 }
 
 #[cfg(all(feature = "tcp_server", unix))]
@@ -195,7 +204,14 @@ impl PeerCheck {
             expected_uid,
             expected_owner,
             reader: Arc::new(read_peer_identity),
+            extra: None,
         }
+    }
+
+    /// Adds a check that must also pass, such as the peer's code signature.
+    pub fn with_extra_check(mut self, check: PeerPredicate) -> Self {
+        self.extra = Some(check);
+        self
     }
 
     /// Replaces how the peer is read, so tests can present any identity.
@@ -219,6 +235,9 @@ impl PeerCheck {
                 "peer pid {} (version {}) is not the owner {pid} (version {pid_version})",
                 peer.pid, peer.pid_version
             ));
+        }
+        if let Some(check) = &self.extra {
+            check(&peer)?;
         }
         Ok(peer)
     }
@@ -261,6 +280,7 @@ pub fn read_peer_identity(stream: &UnixStream) -> std::io::Result<PeerIdentity> 
         uid,
         pid: token[5] as i32,
         pid_version: token[7],
+        audit_token: token,
     })
 }
 
@@ -949,6 +969,7 @@ mod control_tests {
             uid,
             pid,
             pid_version,
+            audit_token: [0; 8],
         }
     }
 
@@ -986,6 +1007,34 @@ mod control_tests {
     #[test]
     fn a_reused_owner_pid_is_refused() {
         assert!(check_with(Some((42, 7)), identity(501, 42, 8)).is_err());
+    }
+
+    #[test]
+    fn the_extra_check_runs_after_the_owner_check_and_can_refuse() {
+        let (stream, _other) = UnixStream::pair().expect("socket pair");
+        let owner = identity(501, 42, 7);
+        let refuse = PeerCheck::new(501, Some((42, 7)))
+            .with_reader(Arc::new(move |_| Ok(owner)))
+            .with_extra_check(Arc::new(|_| Err("code signature does not match".into())));
+        assert_eq!(
+            refuse.verify(&stream),
+            Err("code signature does not match".to_string())
+        );
+        let admit = PeerCheck::new(501, Some((42, 7)))
+            .with_reader(Arc::new(move |_| Ok(owner)))
+            .with_extra_check(Arc::new(|peer| {
+                if peer.pid == 42 {
+                    Ok(())
+                } else {
+                    Err("wrong".into())
+                }
+            }));
+        assert_eq!(admit.verify(&stream), Ok(owner));
+        // A peer the owner check refuses never reaches the extra check.
+        let never = PeerCheck::new(501, Some((42, 7)))
+            .with_reader(Arc::new(|_| Ok(identity(501, 43, 7))))
+            .with_extra_check(Arc::new(|_| panic!("must not run")));
+        assert!(never.verify(&stream).is_err());
     }
 
     #[test]
