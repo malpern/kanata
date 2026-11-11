@@ -272,6 +272,21 @@ pub fn read_peer_identity(_stream: &UnixStream) -> std::io::Result<PeerIdentity>
     ))
 }
 
+/// The listener's filesystem path. A socket bound with the full
+/// `sockaddr_un` length (as Swift's `MemoryLayout<sockaddr_un>.size` does)
+/// reads back with trailing NUL bytes, which no file call accepts, so the
+/// path ends at the first NUL.
+#[cfg(all(feature = "tcp_server", unix))]
+fn bound_path(addr: &std::os::unix::net::SocketAddr) -> Option<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let bytes = addr.as_pathname()?.as_os_str().as_bytes();
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
+    (end > 0).then(|| std::ffi::OsStr::from_bytes(&bytes[..end]).into())
+}
+
 /// Ids of Unix-socket clients in [`Connections`] start with this.
 #[cfg(feature = "tcp_server")]
 const UNIX_CLIENT_PREFIX: &str = "unix-";
@@ -494,7 +509,7 @@ impl TcpServer {
             path: listener
                 .local_addr()
                 .ok()
-                .and_then(|addr| addr.as_pathname().map(|path| path.to_path_buf())),
+                .and_then(|addr| bound_path(&addr)),
             connections: self.connections.clone(),
         };
         let accept_handle = handle.clone();
@@ -1013,6 +1028,41 @@ mod control_tests {
             }
         }
         assert!(failed, "writes to a closed peer must report an error");
+    }
+
+    /// Bound with the whole sockaddr_un length, as KeyPath's Swift code does:
+    /// the path read back must still name the file.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_full_length_bind_still_yields_the_socket_path() {
+        use std::os::fd::FromRawFd;
+        let dir = std::env::temp_dir().join(format!("kp-fullbind-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("e.sock");
+        let fd = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
+        assert!(fd >= 0);
+        let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+        address.sun_family = libc::AF_UNIX as libc::sa_family_t;
+        for (slot, byte) in address
+            .sun_path
+            .iter_mut()
+            .zip(path.to_str().unwrap().bytes())
+        {
+            *slot = byte as libc::c_char;
+        }
+        let full = std::mem::size_of::<libc::sockaddr_un>() as libc::socklen_t;
+        assert_eq!(
+            unsafe { libc::bind(fd, (&address as *const libc::sockaddr_un).cast(), full) },
+            0
+        );
+        assert_eq!(unsafe { libc::listen(fd, 1) }, 0);
+        let listener = unsafe { UnixListener::from_raw_fd(fd) };
+        assert_eq!(
+            bound_path(&listener.local_addr().unwrap()),
+            Some(path.clone())
+        );
+        drop(listener);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
