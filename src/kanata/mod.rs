@@ -175,6 +175,7 @@ pub struct Kanata {
     pub kbd_out: KbdOut,
     /// Paths to one or more configuration files that define kanata's behaviour.
     pub cfg_paths: Vec<PathBuf>,
+    input_policy: Option<fn(&mut cfg::Cfg)>,
     /// Index into `cfg_paths`, used to know which file to live reload. Changes when cycling
     /// through the configuration files.
     pub cur_cfg_idx: usize,
@@ -438,13 +439,24 @@ const LINUX_PERMISSIONS_ERROR: &str = "Failed to open the output uinput device. 
 
 impl Kanata {
     pub fn new(args: &ValidatedArgs) -> Result<Self> {
-        let cfg = match cfg::new_from_file(&args.paths[0]) {
+        Self::new_with_input_policy(args, None)
+    }
+
+    fn new_with_input_policy(
+        args: &ValidatedArgs,
+        input_policy: Option<fn(&mut cfg::Cfg)>,
+    ) -> Result<Self> {
+        let mut cfg = match cfg::new_from_file(&args.paths[0]) {
             Ok(c) => c,
             Err(e) => {
                 log::error!("{e:?}");
                 bail!("failed to parse file");
             }
         };
+
+        if let Some(policy) = input_policy {
+            policy(&mut cfg);
+        }
 
         let kbd_out = match KbdOut::new(
             #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -498,6 +510,7 @@ impl Kanata {
         Ok(Self {
             kbd_out,
             cfg_paths: args.paths.clone(),
+            input_policy,
             cur_cfg_idx: 0,
             key_outputs: cfg.key_outputs,
             layout: cfg.layout,
@@ -673,6 +686,7 @@ impl Kanata {
         Ok(Self {
             kbd_out,
             cfg_paths: vec!["config string".into()],
+            input_policy: None,
             cur_cfg_idx: 0,
             key_outputs: cfg.key_outputs,
             layout: cfg.layout,
@@ -814,13 +828,27 @@ impl Kanata {
         args: &ValidatedArgs,
         tx: Option<ASender<InputEvent>>,
     ) -> Result<Arc<Mutex<Self>>> {
-        let mut k = Self::new(args)?;
+        Self::new_with_output_channel_and_input_policy(args, tx, None)
+    }
+
+    /// Lets an embedded host narrow captured inputs using the parsed layout.
+    /// The policy runs before publishing mapped keys at startup and on reload.
+    #[cfg(any(
+        feature = "passthru_ahk",
+        all(feature = "simulated_input", feature = "simulated_output")
+    ))]
+    pub fn new_with_output_channel_and_input_policy(
+        args: &ValidatedArgs,
+        tx: Option<ASender<InputEvent>>,
+        input_policy: Option<fn(&mut cfg::Cfg)>,
+    ) -> Result<Arc<Mutex<Self>>> {
+        let mut k = Self::new_with_input_policy(args, input_policy)?;
         k.kbd_out.tx_kout = tx;
         Ok(Arc::new(Mutex::new(k)))
     }
 
     fn do_live_reload(&mut self, _tx: &Option<Sender<ServerMessage>>) -> Result<()> {
-        let cfg = match cfg::new_from_file(&self.cfg_paths[self.cur_cfg_idx]) {
+        let mut cfg = match cfg::new_from_file(&self.cfg_paths[self.cur_cfg_idx]) {
             Ok(c) => c,
             Err(e) => {
                 log::error!("{e:?}");
@@ -831,6 +859,9 @@ impl Kanata {
                 bail!("failed to parse config file");
             }
         };
+        if let Some(policy) = self.input_policy {
+            policy(&mut cfg);
+        }
         update_kbd_out(&cfg.options, &self.kbd_out)?;
         #[cfg(target_os = "windows")]
         set_win_altgr_behaviour(cfg.options.windows_opts.windows_altgr);
